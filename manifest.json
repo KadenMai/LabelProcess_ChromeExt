@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Veeqo USPS Label Manager",
+  "version": "1.0",
+  "description": "Adds USPS button to Veeqo allocations table for quick access to USPS label manager",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://app.veeqo.com/*"],
+      "js": ["js/usps-functions.js", "js/content-script.js"],
+      "css": ["css/usps-button.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "js/background.js"
+  }
+}

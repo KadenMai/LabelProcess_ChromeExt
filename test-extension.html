@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extension Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button {
+            background: #0052a5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #003d7a; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Veeqo USPS Extension Test Page</h1>
+        
+        <div class="test-section info">
+            <h3>Extension Status</h3>
+            <p>This page simulates the Veeqo orders page to test the extension.</p>
+            <button onclick="checkExtensionStatus()">Check Extension Status</button>
+            <button onclick="simulateVeeqoPage()">Simulate Veeqo Page</button>
+        </div>
+        
+        <div id="status" class="test-section">
+            <h3>Test Results</h3>
+            <div id="results"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Console Log</h3>
+            <div id="log" class="log"></div>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <!-- Simulated Veeqo allocations table -->
+        <div id="veeqo-simulation" style="display: none;">
+            <h3>Simulated Veeqo Allocations Table</h3>
+            <table id="allocations-table" class="data-grid">
+                <thead>
+                    <tr>
+                        <th>Select</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                        <th>Order #</th>
+                        <th>Customer</th>
+                        <th>Product</th>
+                    </tr>
+                </thead>
+                <tbody class="data-grid-body">
+                    <tr>
+                        <td><input type="checkbox"></td>
+                        <td>Pending</td>
+                        <td></td>
+                        <td>#12345</td>
+                        <td>John Doe</td>
+                        <td>Test Product 1</td>
+                    </tr>
+                    <tr>
+                        <td><input type="checkbox"></td>
+                        <td>Processing</td>
+                        <td></td>
+                        <td>#12346</td>
+                        <td>Jane Smith</td>
+                        <td>Test Product 2</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let logEntries = [];
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = `[${timestamp}] ${message}`;
+            logEntries.push(entry);
+            
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML = logEntries.join('\n');
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            console.log(message);
+        }
+        
+        function clearLog() {
+            logEntries = [];
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function checkExtensionStatus() {
+            const results = document.getElementById('results');
+            results.innerHTML = '';
+            
+            // Check if extension is loaded
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+                addResult('✅ Chrome extension API available', 'success');
+                log('Chrome extension API detected');
+                
+                // Check if our functions are available
+                if (typeof goToUSPS === 'function') {
+                    addResult('✅ goToUSPS function available', 'success');
+                    log('goToUSPS function found');
+                } else {
+                    addResult('❌ goToUSPS function not found', 'error');
+                    log('goToUSPS function not found');
+                }
+                
+                if (typeof createUSPSButton === 'function') {
+                    addResult('✅ createUSPSButton function available', 'success');
+                    log('createUSPSButton function found');
+                } else {
+                    addResult('❌ createUSPSButton function not found', 'error');
+                    log('createUSPSButton function not found');
+                }
+                
+            } else {
+                addResult('❌ Chrome extension API not available', 'error');
+                log('Chrome extension API not detected');
+            }
+        }
+        
+        function addResult(message, type) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `test-section ${type}`;
+            div.innerHTML = message;
+            results.appendChild(div);
+        }
+        
+        function simulateVeeqoPage() {
+            const simulation = document.getElementById('veeqo-simulation');
+            simulation.style.display = 'block';
+            
+            // Change URL to simulate Veeqo
+            window.history.pushState({}, '', '/orders?tabId=459779&status=awaiting_fulfillment');
+            
+            log('Simulated Veeqo page loaded');
+            addResult('✅ Veeqo page simulation activated', 'success');
+            
+            // Check if extension would detect this as a Veeqo page
+            setTimeout(() => {
+                if (typeof isVeeqoAllocationsPage === 'function') {
+                    const isVeeqoPage = isVeeqoAllocationsPage();
+                    if (isVeeqoPage) {
+                        addResult('✅ Extension detects this as Veeqo page', 'success');
+                        log('Extension correctly identified Veeqo page');
+                    } else {
+                        addResult('❌ Extension does not detect this as Veeqo page', 'error');
+                        log('Extension failed to identify Veeqo page');
+                    }
+                }
+            }, 100);
+        }
+        
+        // Override console.log to capture logs
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            log(args.join(' '));
+        };
+        
+        // Initial check
+        window.onload = () => {
+            log('Test page loaded');
+            checkExtensionStatus();
+        };
+    </script>
+</body>
+</html>

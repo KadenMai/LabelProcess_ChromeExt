@@ -1,0 +1,138 @@
+/**
+ * USPS Button Styles for Veeqo Chrome Extension
+ * Provides styling for the USPS button in the allocations table
+ */
+
+/* USPS Button Container */
+.usps-button-container {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin: 5px 0 !important;
+    min-height: 32px !important;
+}
+
+/* USPS Button Base Styles */
+.usps-label-button {
+    background: linear-gradient(135deg, #0052a5 0%, #003d7a 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 4px !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    font-family: "Amazon Ember", Arial, sans-serif !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 4px rgba(0, 82, 165, 0.3) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    min-width: 60px !important;
+    height: 28px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+/* Hover Effects */
+.usps-label-button:hover {
+    background: linear-gradient(135deg, #0066cc 0%, #004d99 100%) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 8px rgba(0, 82, 165, 0.4) !important;
+}
+
+/* Active/Pressed State */
+.usps-label-button:active {
+    transform: translateY(0) !important;
+    box-shadow: 0 2px 4px rgba(0, 82, 165, 0.3) !important;
+    background: linear-gradient(135deg, #003d7a 0%, #002952 100%) !important;
+}
+
+/* Focus State for Accessibility */
+.usps-label-button:focus {
+    outline: 2px solid #ffd700 !important;
+    outline-offset: 2px !important;
+}
+
+/* Disabled State */
+.usps-label-button:disabled {
+    background: #cccccc !important;
+    color: #666666 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Loading State (if needed) */
+.usps-label-button.loading {
+    position: relative !important;
+    color: transparent !important;
+}
+
+.usps-label-button.loading::after {
+    content: '' !important;
+    position: absolute !important;
+    width: 16px !important;
+    height: 16px !important;
+    top: 50% !important;
+    left: 50% !important;
+    margin-left: -8px !important;
+    margin-top: -8px !important;
+    border: 2px solid #ffffff !important;
+    border-radius: 50% !important;
+    border-top-color: transparent !important;
+    animation: spin 1s linear infinite !important;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Ensure button doesn't interfere with table layout */
+#allocations-table .usps-button-container {
+    width: 100% !important;
+    height: auto !important;
+    padding: 2px !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .usps-label-button {
+        font-size: 11px !important;
+        padding: 4px 8px !important;
+        min-width: 50px !important;
+        height: 24px !important;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .usps-label-button {
+        border: 2px solid #ffffff !important;
+        background: #000000 !important;
+        color: #ffffff !important;
+    }
+    
+    .usps-label-button:hover {
+        background: #333333 !important;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .usps-label-button {
+        transition: none !important;
+    }
+    
+    .usps-label-button:hover {
+        transform: none !important;
+    }
+    
+    .usps-label-button.loading::after {
+        animation: none !important;
+    }
+}

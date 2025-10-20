@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veeqo Allocations Table Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Veeqo Allocations Table Test Page</h1>
+        <p>This is a test page to verify the Chrome extension functionality.</p>
+        
+        <div>
+            <button class="test-button" onclick="addTestRow()">Add Test Row</button>
+            <button class="test-button" onclick="removeTestRow()">Remove Test Row</button>
+            <button class="test-button" onclick="refreshTable()">Refresh Table</button>
+        </div>
+        
+        <table id="allocations-table" class="data-grid">
+            <thead>
+                <tr>
+                    <th>Select</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                    <th>Order #</th>
+                    <th>Customer</th>
+                    <th>Product</th>
+                    <th>Quantity</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody class="data-grid-body">
+                <tr>
+                    <td><input type="checkbox"></td>
+                    <td>Pending</td>
+                    <td></td>
+                    <td>#12345</td>
+                    <td>John Doe</td>
+                    <td>Test Product 1</td>
+                    <td>2</td>
+                    <td>2025-01-19</td>
+                </tr>
+                <tr>
+                    <td><input type="checkbox"></td>
+                    <td>Processing</td>
+                    <td></td>
+                    <td>#12346</td>
+                    <td>Jane Smith</td>
+                    <td>Test Product 2</td>
+                    <td>1</td>
+                    <td>2025-01-19</td>
+                </tr>
+                <tr>
+                    <td><input type="checkbox"></td>
+                    <td>Ready</td>
+                    <td></td>
+                    <td>#12347</td>
+                    <td>Bob Johnson</td>
+                    <td>Test Product 3</td>
+                    <td>3</td>
+                    <td>2025-01-19</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let rowCounter = 12348;
+        
+        function addTestRow() {
+            const tbody = document.querySelector('#allocations-table tbody');
+            const newRow = document.createElement('tr');
+            newRow.innerHTML = `
+                <td><input type="checkbox"></td>
+                <td>New</td>
+                <td></td>
+                <td>#${rowCounter++}</td>
+                <td>Test Customer</td>
+                <td>Test Product ${rowCounter}</td>
+                <td>1</td>
+                <td>${new Date().toISOString().split('T')[0]}</td>
+            `;
+            tbody.appendChild(newRow);
+        }
+        
+        function removeTestRow() {
+            const tbody = document.querySelector('#allocations-table tbody');
+            const rows = tbody.querySelectorAll('tr');
+            if (rows.length > 1) {
+                tbody.removeChild(rows[rows.length - 1]);
+            }
+        }
+        
+        function refreshTable() {
+            location.reload();
+        }
+        
+        // Simulate the extension initialization
+        console.log('Test page loaded. If the extension is installed, USPS buttons should appear in the 3rd column.');
+    </script>
+</body>
+</html>

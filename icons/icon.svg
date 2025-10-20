@@ -1,0 +1,16 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="#0052a5" stroke="#003d7a" stroke-width="4"/>
+  
+  <!-- USPS text -->
+  <text x="64" y="45" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">USPS</text>
+  
+  <!-- Mail icon -->
+  <rect x="45" y="55" width="38" height="25" rx="3" fill="white" stroke="#0052a5" stroke-width="2"/>
+  <polyline points="45,60 64,75 83,60" fill="none" stroke="#0052a5" stroke-width="2"/>
+  
+  <!-- Label icon -->
+  <rect x="50" y="85" width="28" height="18" rx="2" fill="white" stroke="#0052a5" stroke-width="1"/>
+  <line x1="55" y1="90" x2="73" y2="90" stroke="#0052a5" stroke-width="1"/>
+  <line x1="55" y1="95" x2="70" y2="95" stroke="#0052a5" stroke-width="1"/>
+</svg>
