@@ -33,6 +33,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             handleFetchVeeqoOrders(request, sender, sendResponse);
             return true; // Keep message channel open for async response
             
+        case 'fetchOrderById':
+            handleFetchOrderById(request, sender, sendResponse);
+            return true; // Keep message channel open for async response
+            
+        case 'injectUSPSAutoFill':
+            handleInjectUSPSAutoFill(request, sender, sendResponse);
+            return true; // Keep message channel open for async response
+            
         case 'logMessage':
             console.log('Content script log:', request.message);
             break;
@@ -153,7 +161,13 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
     try {
         const { apiKey, params = {} } = request;
         
+        console.log('🔍 Background: handleFetchVeeqoOrders called');
+        console.log('🔍 Background: API Key provided:', !!apiKey);
+        console.log('🔍 Background: API Key length:', apiKey ? apiKey.length : 0);
+        console.log('🔍 Background: Params:', params);
+        
         if (!apiKey) {
+            console.error('❌ Background: No API key provided');
             sendResponse({ 
                 success: false, 
                 error: 'No API key provided' 
@@ -162,12 +176,15 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
         }
         
         // Try to use API proxy first (if on Veeqo page)
+        console.log('🔍 Background: Trying API proxy first...');
         const proxyResult = await tryApiProxy('fetchOrders', apiKey, params);
         if (proxyResult) {
-            console.log('Fetch orders via proxy:', proxyResult);
+            console.log('✅ Background: Fetch orders via proxy successful:', proxyResult);
             sendResponse(proxyResult);
             return;
         }
+        
+        console.log('🔍 Background: API proxy failed, trying direct API call...');
         
         // Fallback to direct API call
         const defaultParams = {
@@ -180,7 +197,11 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
             ...params
         });
         
-        const response = await fetch(`https://api.veeqo.com/orders?${queryParams}`, {
+        const apiUrl = `https://api.veeqo.com/orders?${queryParams}`;
+        console.log('🔍 Background: API URL:', apiUrl);
+        console.log('🔍 Background: Query params:', queryParams.toString());
+        
+        const response = await fetch(apiUrl, {
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
@@ -190,24 +211,153 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
             mode: 'cors'
         });
         
+        console.log('🔍 Background: Response status:', response.status);
+        console.log('🔍 Background: Response ok:', response.ok);
+        console.log('🔍 Background: Response headers:', Object.fromEntries(response.headers.entries()));
+        
         if (response.ok) {
             const data = await response.json();
+            console.log('✅ Background: API response successful');
+            console.log('🔍 Background: Response data type:', typeof data);
+            console.log('🔍 Background: Response data:', data);
+            console.log('🔍 Background: Response data keys:', Object.keys(data || {}));
+            console.log('🔍 Background: Orders array:', data.orders);
+            console.log('🔍 Background: Orders count:', data.orders ? data.orders.length : 0);
+            
+            // Log the exact structure to help debug
+            if (Array.isArray(data)) {
+                console.log('✅ Background: Data is direct array (Veeqo API format)');
+            } else if (data.orders) {
+                console.log('✅ Background: Found orders in data.orders');
+            } else if (data.results) {
+                console.log('✅ Background: Found orders in data.results');
+            } else {
+                console.log('❌ Background: No orders found in expected locations');
+                console.log('🔍 Background: Available keys:', Object.keys(data || {}));
+            }
+            
             sendResponse({ 
                 success: true, 
                 data: data 
             });
         } else {
+            const errorText = await response.text();
+            console.error('❌ Background: API request failed');
+            console.error('❌ Background: Status:', response.status);
+            console.error('❌ Background: Error text:', errorText);
+            
             sendResponse({ 
                 success: false, 
-                error: `API request failed with status: ${response.status}` 
+                error: `API request failed with status: ${response.status} - ${errorText}` 
             });
         }
     } catch (error) {
-        console.error('Error fetching Veeqo orders:', error);
+        console.error('❌ Background: Error in handleFetchVeeqoOrders:', error);
+        console.error('❌ Background: Error stack:', error.stack);
         sendResponse({ 
             success: false, 
             error: error.message 
         });
+    }
+}
+
+/**
+ * Handle fetching individual order by ID
+ */
+async function handleFetchOrderById(request, sender, sendResponse) {
+    try {
+        const { apiKey, orderId } = request;
+        console.log('Fetching order by ID:', orderId);
+        
+        if (!apiKey) {
+            sendResponse({ success: false, error: 'No API key provided' });
+            return;
+        }
+        
+        if (!orderId) {
+            sendResponse({ success: false, error: 'No order ID provided' });
+            return;
+        }
+        
+        // Try API proxy first
+        const proxyResult = await tryApiProxy('fetchOrderById', apiKey, { orderId });
+        if (proxyResult) {
+            console.log('Order fetch via proxy:', proxyResult);
+            sendResponse(proxyResult);
+            return;
+        }
+        
+        // Fallback to direct API call
+        const url = `https://api.veeqo.com/orders/${orderId}`;
+        console.log('Making direct request to:', url);
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            mode: 'cors'
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Order fetch successful:', data);
+            sendResponse({ success: true, data: data });
+        } else {
+            const errorText = await response.text();
+            sendResponse({ 
+                success: false, 
+                error: `Order fetch failed with status: ${response.status} - ${errorText}` 
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error fetching order by ID:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+/**
+ * Handle injecting USPS auto-fill script
+ */
+async function handleInjectUSPSAutoFill(request, sender, sendResponse) {
+    try {
+        const { tabId, orderData } = request;
+        console.log('Injecting USPS auto-fill script into tab:', tabId);
+        
+        if (!tabId) {
+            sendResponse({ success: false, error: 'No tab ID provided' });
+            return;
+        }
+        
+        // Store order data in session storage for the USPS page
+        if (orderData) {
+            await chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: (data) => {
+                    sessionStorage.setItem('veeqoOrderData', JSON.stringify(data));
+                    console.log('Order data stored in USPS page session storage:', data);
+                },
+                args: [orderData]
+            });
+        }
+        
+        // Inject the USPS auto-fill script
+        await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['js/usps-autofill.js']
+        });
+        
+        console.log('USPS auto-fill script injected successfully');
+        sendResponse({ success: true, message: 'USPS auto-fill script injected' });
+        
+    } catch (error) {
+        console.error('Error injecting USPS auto-fill script:', error);
+        sendResponse({ success: false, error: error.message });
     }
 }
 

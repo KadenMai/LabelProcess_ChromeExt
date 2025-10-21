@@ -25,6 +25,9 @@ if (window.location.hostname === 'app.veeqo.com') {
                     case 'fetchOrders':
                         result = await fetchVeeqoOrders(apiKey, params);
                         break;
+                    case 'fetchOrderById':
+                        result = await fetchOrderById(apiKey, params.orderId);
+                        break;
                     default:
                         result = { success: false, error: 'Unknown action' };
                 }
@@ -148,6 +151,32 @@ if (window.location.hostname === 'app.veeqo.com') {
                     success: false, 
                     error: `API request failed with status: ${response.status}` 
                 };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    
+    async function fetchOrderById(apiKey, orderId) {
+        try {
+            if (!orderId) {
+                return { success: false, error: 'No order ID provided' };
+            }
+            
+            const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
+                method: 'GET',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                return { success: true, data: data };
+            } else {
+                const errorText = await response.text();
+                return { success: false, error: `Order fetch failed with status: ${response.status} - ${errorText}` };
             }
         } catch (error) {
             return { success: false, error: error.message };

@@ -7,15 +7,47 @@
 const VEEQO_API_BASE = 'https://api.veeqo.com';
 
 /**
+ * Check if Chrome extension context is valid
+ * @returns {boolean} True if context is valid
+ */
+function isExtensionContextValid() {
+    try {
+        return chrome && chrome.runtime && chrome.runtime.id;
+    } catch (error) {
+        return false;
+    }
+}
+
+/**
  * Get stored API key from Chrome storage
  * @returns {Promise<string|null>} The API key or null if not found
  */
 async function getApiKey() {
     try {
+        // Check if extension context is still valid
+        if (!isExtensionContextValid()) {
+            console.warn('Extension context invalidated, cannot access storage');
+            // Show recovery notification immediately
+            if (typeof showRecoveryNotification === 'function') {
+                showRecoveryNotification('Extension context invalidated. Please reload the page to restore functionality.', 'warning');
+            }
+            return null;
+        }
+        
         const result = await chrome.storage.sync.get(['veeqoApiKey']);
         return result.veeqoApiKey || null;
     } catch (error) {
         console.error('Error getting API key:', error);
+        
+        // Check if this is a context invalidation error
+        if (error.message && error.message.includes('Extension context invalidated')) {
+            console.warn('Extension context invalidated during API key retrieval');
+            // Show recovery notification immediately
+            if (typeof showRecoveryNotification === 'function') {
+                showRecoveryNotification('Extension context invalidated. Please reload the page to restore functionality.', 'warning');
+            }
+        }
+        
         return null;
     }
 }
@@ -27,6 +59,11 @@ async function getApiKey() {
  * @returns {Promise<Object>} API response
  */
 async function makeVeeqoApiRequest(endpoint, options = {}) {
+    // Check if extension context is still valid
+    if (!isExtensionContextValid()) {
+        throw new Error('Extension context invalidated. Please reload the page.');
+    }
+    
     const apiKey = await getApiKey();
     
     if (!apiKey) {
@@ -139,6 +176,120 @@ async function getCurrentPageOrderDetails() {
 }
 
 /**
+ * Create a mapping of order numbers to order IDs and details
+ * @returns {Promise<Object>} Object with order_number as key and order details as value
+ */
+async function createOrderMapping() {
+    try {
+        // Check if extension context is still valid before making API calls
+        if (!isExtensionContextValid()) {
+            console.warn('Extension context invalidated, cannot create order mapping');
+            // Show recovery notification immediately
+            if (typeof showRecoveryNotification === 'function') {
+                showRecoveryNotification('Extension context invalidated. Please reload the page to restore functionality.', 'warning');
+            }
+            return {};
+        }
+        
+        const ordersResponse = await fetchOrders({
+            page_size: 100,
+            status: 'awaiting_fulfillment'
+        });
+        
+        if (!ordersResponse.orders || !Array.isArray(ordersResponse.orders)) {
+            console.log('No orders found for mapping');
+            return {};
+        }
+        
+        const orderMap = {};
+        ordersResponse.orders.forEach(order => {
+            if (order.reference_number) {
+                orderMap[order.reference_number] = {
+                    id: order.id,
+                    reference_number: order.reference_number,
+                    customer: order.customer,
+                    customer_id: order.customer?.id,
+                    customer_name: order.customer?.name,
+                    customer_email: order.customer?.email,
+                    line_items: order.line_items,
+                    delivery_method: order.delivery_method,
+                    created_at: order.created_at,
+                    updated_at: order.updated_at
+                };
+            }
+        });
+        
+        console.log(`Created order mapping with ${Object.keys(orderMap).length} orders`);
+        return orderMap;
+        
+    } catch (error) {
+        console.error('Error creating order mapping:', error);
+        
+        // Check if this is a context invalidation error
+        if (error.message && error.message.includes('Extension context invalidated')) {
+            console.warn('Extension context invalidated during order mapping creation');
+            // Show recovery notification immediately
+            if (typeof showRecoveryNotification === 'function') {
+                showRecoveryNotification('Extension context invalidated. Please reload the page to restore functionality.', 'warning');
+            }
+        }
+        
+        return {};
+    }
+}
+
+/**
+ * Get order details by order number
+ * @param {string} orderNumber - The order reference number
+ * @returns {Promise<Object|null>} Order details or null if not found
+ */
+async function getOrderDetailsByNumber(orderNumber) {
+    try {
+        const orderMap = await createOrderMapping();
+        return orderMap[orderNumber] || null;
+    } catch (error) {
+        console.error('Error getting order details by number:', error);
+        return null;
+    }
+}
+
+/**
+ * Get order details by order ID
+ * @param {number} orderId - The internal Veeqo order ID
+ * @returns {Promise<Object|null>} Order details or null if not found
+ */
+async function getOrderDetailsById(orderId) {
+    try {
+        // Check if extension context is still valid
+        if (!isExtensionContextValid()) {
+            console.warn('Extension context invalidated, cannot fetch order details');
+            return null;
+        }
+        
+        const apiKey = await getApiKey();
+        if (!apiKey) {
+            throw new Error('API key not configured');
+        }
+        
+        // Use background script to make the API request
+        const response = await chrome.runtime.sendMessage({
+            action: 'fetchOrderById',
+            apiKey: apiKey,
+            orderId: orderId
+        });
+        
+        if (response && response.success) {
+            return response.data;
+        } else {
+            throw new Error(response?.error || 'Failed to fetch order details');
+        }
+    } catch (error) {
+        console.error('Error getting order details by ID:', error);
+        return null;
+    }
+}
+
+/**
  * Extract order numbers from the current page
  * @returns {Array<string>} Array of order numbers
  */
@@ -174,6 +325,12 @@ function getOrderNumbersFromPage() {
  */
 async function testApiConnection() {
     try {
+        // Check if extension context is still valid
+        if (!isExtensionContextValid()) {
+            console.warn('Extension context invalidated, cannot test API connection');
+            return false;
+        }
+        
         const apiKey = await getApiKey();
         if (!apiKey) {
             return false;

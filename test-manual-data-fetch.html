@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Data Fetch Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #28a745;
+        }
+        .header h1 {
+            color: #28a745;
+            margin: 0;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #218838;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .instructions {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .instructions h4 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .data-display {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Manual Data Fetch Test</h1>
+            <p>Test the new manual order data fetching approach</p>
+        </div>
+
+        <div class="instructions">
+            <h4>📋 New Approach Benefits:</h4>
+            <ol>
+                <li><strong>No Context Invalidation Issues</strong> - Buttons are created immediately without API calls</li>
+                <li><strong>User-Controlled Data Fetching</strong> - Data is fetched only when user clicks "Fill Order Data"</li>
+                <li><strong>Efficient Storage</strong> - Only required data is stored: deliver_to, SKU codes, allocation_package</li>
+                <li><strong>Better Performance</strong> - No upfront API calls that can fail or cause delays</li>
+                <li><strong>Reliable USPS Buttons</strong> - Buttons always appear, with or without order data</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>🔧 Simulate Veeqo Page</h3>
+            <p>Simulate the Veeqo allocations table with sample order numbers.</p>
+            <button onclick="createSampleTable()">Create Sample Table</button>
+            <button onclick="addUSPSButtons()">Add USPS Buttons</button>
+            <button onclick="addFillOrderDataButton()">Add Fill Order Data Button</button>
+            <div class="status" id="simulationStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Test Data Fetching</h3>
+            <p>Test the manual data fetching functionality.</p>
+            <button onclick="testDataFetching()">Test Data Fetching</button>
+            <button onclick="viewStoredData()">View Stored Data</button>
+            <button onclick="clearStoredData()">Clear Stored Data</button>
+            <div class="status" id="dataStatus"></div>
+            <div class="data-display" id="dataDisplay"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔗 Test USPS Button Integration</h3>
+            <p>Test how USPS buttons work with stored order data.</p>
+            <button onclick="testUSPSButtonClick()">Test USPS Button Click</button>
+            <button onclick="simulateUSPSNavigation()">Simulate USPS Navigation</button>
+            <div class="status" id="uspsStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        // Mock Chrome API for testing
+        if (!window.chrome) {
+            window.chrome = {
+                runtime: {
+                    id: 'test-extension-id',
+                    sendMessage: function(message, callback) {
+                        console.log('Mock chrome.runtime.sendMessage called:', message);
+                        if (callback) {
+                            setTimeout(() => callback({ 
+                                success: true, 
+                                data: {
+                                    orders: [
+                                        {
+                                            id: 12345,
+                                            sales_record_number: 'ORD001',
+                                            reference_number: 'REF001',
+                                            delivery_method: { name: 'Standard Shipping' },
+                                            line_items: [
+                                                { sellable: { sku_code: 'SKU001' } },
+                                                { sellable: { sku_code: 'SKU002' } }
+                                            ],
+                                            allocation_package: 'Package A',
+                                            customer: { name: 'John Doe', email: 'john@example.com' }
+                                        },
+                                        {
+                                            id: 12346,
+                                            sales_record_number: 'ORD002',
+                                            reference_number: 'REF002',
+                                            delivery_method: { name: 'Express Shipping' },
+                                            line_items: [
+                                                { sellable: { sku_code: 'SKU003' } }
+                                            ],
+                                            allocation_package: 'Package B',
+                                            customer: { name: 'Jane Smith', email: 'jane@example.com' }
+                                        },
+                                        {
+                                            id: 12347,
+                                            sales_record_number: 'ORD003',
+                                            reference_number: 'REF003',
+                                            delivery_method: { name: 'Standard Shipping' },
+                                            line_items: [
+                                                { sellable: { sku_code: 'SKU004' } },
+                                                { sellable: { sku_code: 'SKU005' } }
+                                            ],
+                                            allocation_package: 'Package C',
+                                            customer: { name: 'Bob Johnson', email: 'bob@example.com' }
+                                        },
+                                        {
+                                            id: 12348,
+                                            sales_record_number: 'ORD004',
+                                            reference_number: 'REF004',
+                                            delivery_method: { name: 'Priority Shipping' },
+                                            line_items: [
+                                                { sellable: { sku_code: 'SKU006' } }
+                                            ],
+                                            allocation_package: 'Package D',
+                                            customer: { name: 'Alice Brown', email: 'alice@example.com' }
+                                        }
+                                    ]
+                                }
+                            }), 100);
+                        }
+                    }
+                },
+                storage: {
+                    sync: {
+                        get: function(keys, callback) {
+                            console.log('Mock chrome.storage.sync.get called:', keys);
+                            if (callback) {
+                                setTimeout(() => callback({ veeqoApiKey: 'test-api-key' }), 100);
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        // Include the functions from the content script
+        function isExtensionContextValid() {
+            try {
+                return chrome && chrome.runtime && chrome.runtime.id;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function getApiKey() {
+            try {
+                if (!isExtensionContextValid()) {
+                    console.warn('Extension context invalidated, cannot access storage');
+                    return null;
+                }
+                
+                const result = await chrome.storage.sync.get(['veeqoApiKey']);
+                return result.veeqoApiKey || null;
+            } catch (error) {
+                console.error('Error getting API key:', error);
+                return null;
+            }
+        }
+
+        function extractOrderNumberFromRow(row) {
+            try {
+                // Get all cells in the row
+                const cells = row.querySelectorAll('td');
+                
+                // Check if we have at least 4 columns (Column 4 is index 3)
+                if (cells.length >= 4) {
+                    const orderCell = cells[3]; // Column 4 (0-indexed)
+                    
+                    // Look for the order number in the span element
+                    const spanElement = orderCell.querySelector('span');
+                    if (spanElement) {
+                        const orderText = spanElement.textContent?.trim();
+                        if (orderText) {
+                            console.log(`Found order text in span: "${orderText}"`);
+                            return orderText;
+                        }
+                    }
+                    
+                    // Fallback: look for any text in the order cell
+                    const cellText = orderCell.textContent?.trim();
+                    if (cellText) {
+                        console.log(`Found order text in cell: "${cellText}"`);
+                        return cellText;
+                    }
+                }
+                
+                console.log('No order number found in column 4');
+                return null;
+            } catch (error) {
+                console.error('Error extracting order number from row:', error);
+                return null;
+            }
+        }
+
+        function getAllOrderNumbersFromPage() {
+            const orderNumbers = new Set();
+            
+            try {
+                const table = document.getElementById('allocations-table');
+                if (table) {
+                    const rows = table.querySelectorAll('tbody tr');
+                    rows.forEach(row => {
+                        const orderNumber = extractOrderNumberFromRow(row);
+                        if (orderNumber) {
+                            orderNumbers.add(orderNumber);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error getting order numbers from page:', error);
+            }
+            
+            return Array.from(orderNumbers);
+        }
+
+        function createSampleTable() {
+            // Remove existing table if any
+            const existingTable = document.getElementById('allocations-table');
+            if (existingTable) {
+                existingTable.remove();
+            }
+
+            // Create sample table
+            const table = document.createElement('table');
+            table.id = 'allocations-table';
+            table.style.cssText = 'width: 100%; border-collapse: collapse; margin: 20px 0;';
+            
+            const thead = document.createElement('thead');
+            thead.innerHTML = `
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 10px; border: 1px solid #ddd;">Product</th>
+                    <th style="padding: 10px; border: 1px solid #ddd;">Customer</th>
+                    <th style="padding: 10px; border: 1px solid #ddd;">Actions</th>
+                    <th style="padding: 10px; border: 1px solid #ddd;">Order</th>
+                    <th style="padding: 10px; border: 1px solid #ddd;">Status</th>
+                </tr>
+            `;
+            
+            const tbody = document.createElement('tbody');
+            const sampleOrders = ['ORD001', 'ORD002', 'ORD003', 'ORD004'];
+            
+            sampleOrders.forEach(orderNumber => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="padding: 10px; border: 1px solid #ddd;">Product ${orderNumber.slice(-1)}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Customer ${orderNumber.slice(-1)}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">
+                        <div>
+                            <div>
+                                <div>
+                                    <div>
+                                        <div>
+                                            <button><span>${orderNumber}</span></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Pending</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            
+            // Insert before the first test section
+            const firstSection = document.querySelector('.test-section');
+            firstSection.parentNode.insertBefore(table, firstSection);
+            
+            showStatus('simulationStatus', '✅ Sample table created with 4 orders', 'success');
+        }
+
+        function addUSPSButtons() {
+            const table = document.getElementById('allocations-table');
+            if (!table) {
+                showStatus('simulationStatus', '❌ No table found. Create sample table first.', 'error');
+                return;
+            }
+
+            const tbody = table.querySelector('tbody');
+            const rows = tbody.querySelectorAll('tr');
+            let buttonsAdded = 0;
+
+            rows.forEach((row, index) => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 3) {
+                    const thirdCell = cells[2];
+                    
+                    if (!thirdCell.querySelector('.usps-label-button')) {
+                        const orderNumber = extractOrderNumberFromRow(row);
+                        const button = document.createElement('button');
+                        button.className = 'usps-label-button';
+                        button.textContent = 'USPS';
+                        button.id = orderNumber || 'unknown-order';
+                        button.title = orderNumber ? `Order: ${orderNumber}` : 'Order number not found';
+                        button.style.cssText = `
+                            background: #007bff;
+                            color: white;
+                            border: none;
+                            padding: 5px 10px;
+                            border-radius: 3px;
+                            cursor: pointer;
+                            font-size: 12px;
+                        `;
+                        
+                        button.addEventListener('click', function() {
+                            console.log(`USPS button clicked for order: ${orderNumber}`);
+                            showStatus('uspsStatus', `USPS button clicked for order: ${orderNumber}`, 'info');
+                        });
+                        
+                        thirdCell.appendChild(button);
+                        buttonsAdded++;
+                    }
+                }
+            });
+
+            showStatus('simulationStatus', `✅ Added ${buttonsAdded} USPS buttons`, 'success');
+        }
+
+        function addFillOrderDataButton() {
+            // Check if button already exists
+            if (document.getElementById('fill-order-data-btn')) {
+                showStatus('simulationStatus', 'Fill Order Data button already exists', 'info');
+                return;
+            }
+
+            // Create the button
+            const fillOrderDataButton = document.createElement('button');
+            fillOrderDataButton.id = 'fill-order-data-btn';
+            fillOrderDataButton.textContent = 'Fill Order Data';
+            fillOrderDataButton.style.cssText = `
+                margin: 10px;
+                background: #28a745;
+                color: white;
+                border: 1px solid #28a745;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 14px;
+                cursor: pointer;
+            `;
+            
+            fillOrderDataButton.addEventListener('click', handleFillOrderDataClick);
+            
+            // Add to the page
+            const container = document.querySelector('.container');
+            container.insertBefore(fillOrderDataButton, container.firstChild);
+            
+            showStatus('simulationStatus', '✅ Fill Order Data button added', 'success');
+        }
+
+        async function handleFillOrderDataClick() {
+            try {
+                console.log('Fill Order Data button clicked');
+                
+                const button = document.getElementById('fill-order-data-btn');
+                const originalText = button.textContent;
+                button.textContent = 'Loading...';
+                button.disabled = true;
+                
+                const orderNumbers = getAllOrderNumbersFromPage();
+                console.log(`Found ${orderNumbers.length} order numbers:`, orderNumbers);
+                
+                if (orderNumbers.length === 0) {
+                    showStatus('dataStatus', 'No order numbers found on this page', 'error');
+                    button.textContent = originalText;
+                    button.disabled = false;
+                    return;
+                }
+                
+                // Simulate fetching all orders from API and matching with table data
+                const orderDataMap = {};
+                
+                // Mock API response with all orders
+                const mockApiOrders = [
+                    {
+                        id: 12345,
+                        sales_record_number: 'ORD001',
+                        reference_number: 'REF001',
+                        delivery_method: { name: 'Standard Shipping' },
+                        line_items: [
+                            { sellable: { sku_code: 'SKU001' } },
+                            { sellable: { sku_code: 'SKU002' } }
+                        ],
+                        allocation_package: 'Package A',
+                        customer: { name: 'John Doe', email: 'john@example.com' }
+                    },
+                    {
+                        id: 12346,
+                        sales_record_number: 'ORD002',
+                        reference_number: 'REF002',
+                        delivery_method: { name: 'Express Shipping' },
+                        line_items: [
+                            { sellable: { sku_code: 'SKU003' } }
+                        ],
+                        allocation_package: 'Package B',
+                        customer: { name: 'Jane Smith', email: 'jane@example.com' }
+                    },
+                    {
+                        id: 12347,
+                        sales_record_number: 'ORD003',
+                        reference_number: 'REF003',
+                        delivery_method: { name: 'Standard Shipping' },
+                        line_items: [
+                            { sellable: { sku_code: 'SKU004' } },
+                            { sellable: { sku_code: 'SKU005' } }
+                        ],
+                        allocation_package: 'Package C',
+                        customer: { name: 'Bob Johnson', email: 'bob@example.com' }
+                    },
+                    {
+                        id: 12348,
+                        sales_record_number: 'ORD004',
+                        reference_number: 'REF004',
+                        delivery_method: { name: 'Priority Shipping' },
+                        line_items: [
+                            { sellable: { sku_code: 'SKU006' } }
+                        ],
+                        allocation_package: 'Package D',
+                        customer: { name: 'Alice Brown', email: 'alice@example.com' }
+                    }
+                ];
+                
+                // Create API order map using sales_record_number
+                const apiOrderMap = {};
+                mockApiOrders.forEach(order => {
+                    if (order.sales_record_number) {
+                        apiOrderMap[order.sales_record_number] = order;
+                    }
+                });
+                
+                // Match table order numbers with API data
+                for (const orderNumber of orderNumbers) {
+                    const apiOrder = apiOrderMap[orderNumber];
+                    if (apiOrder) {
+                        orderDataMap[orderNumber] = {
+                            deliver_to: apiOrder.delivery_method?.name || null,
+                            sku_codes: apiOrder.line_items?.map(item => item.sellable?.sku_code).filter(Boolean) || [],
+                            allocation_package: apiOrder.allocation_package || null,
+                            customer: apiOrder.customer || null,
+                            sales_record_number: apiOrder.sales_record_number || orderNumber,
+                            reference_number: apiOrder.reference_number || null,
+                            id: apiOrder.id
+                        };
+                    }
+                }
+                
+                // Store the order data
+                localStorage.setItem('veeqoOrderData', JSON.stringify(orderDataMap));
+                console.log('Order data stored in localStorage');
+                
+                showStatus('dataStatus', `✅ Successfully fetched data for ${Object.keys(orderDataMap).length} orders`, 'success');
+                
+                button.textContent = originalText;
+                button.disabled = false;
+                
+            } catch (error) {
+                console.error('Error handling Fill Order Data click:', error);
+                showStatus('dataStatus', 'Error fetching order data: ' + error.message, 'error');
+                
+                const button = document.getElementById('fill-order-data-btn');
+                button.textContent = 'Fill Order Data';
+                button.disabled = false;
+            }
+        }
+
+        function testDataFetching() {
+            const orderNumbers = getAllOrderNumbersFromPage();
+            showStatus('dataStatus', `Found ${orderNumbers.length} order numbers: ${orderNumbers.join(', ')}`, 'info');
+        }
+
+        function viewStoredData() {
+            try {
+                const storedData = localStorage.getItem('veeqoOrderData');
+                if (storedData) {
+                    const orderData = JSON.parse(storedData);
+                    document.getElementById('dataDisplay').textContent = JSON.stringify(orderData, null, 2);
+                    showStatus('dataStatus', '✅ Stored data displayed below', 'success');
+                } else {
+                    document.getElementById('dataDisplay').textContent = 'No stored data found';
+                    showStatus('dataStatus', 'No stored data found', 'info');
+                }
+            } catch (error) {
+                showStatus('dataStatus', 'Error reading stored data: ' + error.message, 'error');
+            }
+        }
+
+        function clearStoredData() {
+            localStorage.removeItem('veeqoOrderData');
+            document.getElementById('dataDisplay').textContent = '';
+            showStatus('dataStatus', '✅ Stored data cleared', 'success');
+        }
+
+        function testUSPSButtonClick() {
+            const buttons = document.querySelectorAll('.usps-label-button');
+            if (buttons.length > 0) {
+                showStatus('uspsStatus', `Found ${buttons.length} USPS buttons. Click any button to test.`, 'info');
+            } else {
+                showStatus('uspsStatus', 'No USPS buttons found. Add them first.', 'error');
+            }
+        }
+
+        function simulateUSPSNavigation() {
+            const storedData = localStorage.getItem('veeqoOrderData');
+            if (storedData) {
+                const orderData = JSON.parse(storedData);
+                const orderNumbers = Object.keys(orderData);
+                showStatus('uspsStatus', `Would navigate to USPS with data for ${orderNumbers.length} orders`, 'success');
+            } else {
+                showStatus('uspsStatus', 'No stored data. Would navigate to USPS without auto-fill.', 'info');
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = message;
+            element.className = `status ${type}`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Manual Data Fetch Test page loaded');
+        });
+    </script>
+</body>
+</html>

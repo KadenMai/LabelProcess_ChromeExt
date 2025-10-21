@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Notification Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #ffc107;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            margin: 10px;
+        }
+        button:hover {
+            background: #e0a800;
+        }
+        .instructions {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔔 Simple Notification Test</h1>
+        
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li>Click the button below</li>
+                <li>Look for a <strong>yellow warning notification</strong> at the top of the page</li>
+                <li>If you see it, the notification system is working</li>
+                <li>If you don't see it, there might be a CSS or DOM issue</li>
+            </ol>
+        </div>
+
+        <div style="text-align: center;">
+            <button onclick="showTestNotification()">Show Test Notification</button>
+            <button onclick="clearNotifications()">Clear Notifications</button>
+        </div>
+
+        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <h4>Expected Result:</h4>
+            <p>You should see a yellow notification with the message:</p>
+            <p><strong>"Extension context invalidated. Please reload the page to restore full functionality."</strong></p>
+        </div>
+    </div>
+
+    <script>
+        function showTestNotification() {
+            console.log('Creating test notification...');
+            
+            // Remove any existing notifications
+            const existingNotification = document.getElementById('test-notification');
+            if (existingNotification) {
+                existingNotification.remove();
+            }
+            
+            // Create the notification
+            const notification = document.createElement('div');
+            notification.id = 'test-notification';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #ffc107;
+                color: #000;
+                padding: 15px 20px;
+                border-radius: 8px;
+                z-index: 10000;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
+                font-weight: 500;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                max-width: 400px;
+                border: 2px solid #e0a800;
+            `;
+            
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 18px;">⚠️</span>
+                    <span>Extension context invalidated. Please reload the page to restore full functionality.</span>
+                    <button onclick="this.parentElement.parentElement.remove()" 
+                            style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; margin-left: 10px;">
+                        ×
+                    </button>
+                </div>
+            `;
+            
+            // Add to page
+            document.body.appendChild(notification);
+            console.log('Test notification created and added to page');
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                    console.log('Test notification auto-removed');
+                }
+            }, 10000);
+        }
+
+        function clearNotifications() {
+            const notifications = document.querySelectorAll('#test-notification');
+            notifications.forEach(notification => notification.remove());
+            console.log('All notifications cleared');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Simple notification test page loaded');
+        });
+    </script>
+</body>
+</html>

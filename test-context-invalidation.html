@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extension Context Invalidation Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #dc3545;
+        }
+        .header h1 {
+            color: #dc3545;
+            margin: 0;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #c82333;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .instructions {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .instructions h4 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .instructions ol {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Extension Context Invalidation Test</h1>
+            <p>Test the extension's ability to handle context invalidation gracefully</p>
+        </div>
+
+        <div class="instructions">
+            <h4>📋 Test Instructions:</h4>
+            <ol>
+                <li>Make sure you're on a Veeqo page (app.veeqo.com)</li>
+                <li>Click "Test Context Validation" to check current status</li>
+                <li>Go to <code>chrome://extensions/</code> and reload the extension</li>
+                <li>Return to this page and click "Test After Reload"</li>
+                <li>You should see a warning notification appear</li>
+                <li>Check that USPS buttons still work (basic mode)</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Context Validation Test</h3>
+            <p>Test the extension's context validation functionality.</p>
+            <button onclick="testContextValidation()">Test Context Validation</button>
+            <button onclick="testAfterReload()">Test After Reload</button>
+            <button onclick="simulateContextError()">Simulate Context Error</button>
+            <div class="status" id="contextStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🚨 Error Handling Test</h3>
+            <p>Test the global error handling and recovery system.</p>
+            <button onclick="testErrorHandling()">Test Error Handling</button>
+            <button onclick="testNotification()">Test Notification</button>
+            <button onclick="clearNotifications()">Clear Notifications</button>
+            <div class="status" id="errorStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Extension Status</h3>
+            <p>Current extension status and information.</p>
+            <button onclick="checkExtensionStatus()">Check Extension Status</button>
+            <button onclick="showDebugInfo()">Show Debug Info</button>
+            <div class="status" id="extensionStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        // Mock Chrome API for testing
+        if (!window.chrome) {
+            window.chrome = {
+                runtime: {
+                    id: 'test-extension-id',
+                    sendMessage: function(message, callback) {
+                        console.log('Mock chrome.runtime.sendMessage called:', message);
+                        if (callback) {
+                            setTimeout(() => callback({ success: true }), 100);
+                        }
+                    }
+                },
+                storage: {
+                    sync: {
+                        get: function(keys, callback) {
+                            console.log('Mock chrome.storage.sync.get called:', keys);
+                            if (callback) {
+                                setTimeout(() => callback({ veeqoApiKey: 'test-key' }), 100);
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        function testContextValidation() {
+            try {
+                // Check if context validation function exists
+                if (typeof isExtensionContextValid === 'function') {
+                    const isValid = isExtensionContextValid();
+                    showStatus('contextStatus', 
+                        `Context validation: ${isValid ? '✅ Valid' : '❌ Invalid'}`, 
+                        isValid ? 'success' : 'error'
+                    );
+                } else {
+                    showStatus('contextStatus', '❌ Context validation function not available', 'error');
+                }
+            } catch (error) {
+                showStatus('contextStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function testAfterReload() {
+            try {
+                // Simulate what happens after extension reload
+                if (typeof isExtensionContextValid === 'function') {
+                    const isValid = isExtensionContextValid();
+                    if (!isValid) {
+                        showStatus('contextStatus', '⚠️ Context invalidated (simulated reload)', 'error');
+                        // Show recovery notification
+                        if (typeof showRecoveryNotification === 'function') {
+                            showRecoveryNotification('Extension context invalidated. Please reload the page to restore functionality.', 'warning');
+                        }
+                    } else {
+                        showStatus('contextStatus', '✅ Context still valid', 'success');
+                    }
+                } else {
+                    showStatus('contextStatus', '❌ Context validation function not available', 'error');
+                }
+            } catch (error) {
+                showStatus('contextStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function simulateContextError() {
+            try {
+                // Simulate a context invalidation error
+                const error = new Error('Extension context invalidated');
+                window.dispatchEvent(new ErrorEvent('error', { error: error }));
+                showStatus('contextStatus', '🔄 Simulated context error dispatched', 'info');
+            } catch (error) {
+                showStatus('contextStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function testErrorHandling() {
+            try {
+                // Test if error handling functions are available
+                const functions = [
+                    'isExtensionContextValid',
+                    'showRecoveryNotification',
+                    'setupGlobalErrorHandler'
+                ];
+                
+                const available = functions.filter(func => typeof window[func] === 'function');
+                const missing = functions.filter(func => typeof window[func] !== 'function');
+                
+                showStatus('errorStatus', 
+                    `Error handling functions: ${available.length}/${functions.length} available`, 
+                    missing.length === 0 ? 'success' : 'error'
+                );
+                
+                if (missing.length > 0) {
+                    console.log('Missing functions:', missing);
+                }
+            } catch (error) {
+                showStatus('errorStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function testNotification() {
+            try {
+                if (typeof showRecoveryNotification === 'function') {
+                    showRecoveryNotification('This is a test notification for context invalidation recovery.', 'info');
+                    showStatus('errorStatus', '✅ Test notification displayed', 'success');
+                } else {
+                    showStatus('errorStatus', '❌ Notification function not available', 'error');
+                }
+            } catch (error) {
+                showStatus('errorStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function clearNotifications() {
+            const notifications = document.querySelectorAll('#extension-recovery-notification');
+            notifications.forEach(notification => notification.remove());
+            showStatus('errorStatus', '✅ Notifications cleared', 'success');
+        }
+
+        function checkExtensionStatus() {
+            try {
+                const status = {
+                    chrome: !!window.chrome,
+                    runtime: !!(window.chrome && window.chrome.runtime),
+                    runtimeId: !!(window.chrome && window.chrome.runtime && window.chrome.runtime.id),
+                    storage: !!(window.chrome && window.chrome.storage),
+                    contextValid: typeof isExtensionContextValid === 'function' ? isExtensionContextValid() : 'unknown'
+                };
+                
+                const statusText = Object.entries(status)
+                    .map(([key, value]) => `${key}: ${value ? '✅' : '❌'}`)
+                    .join('<br>');
+                
+                showStatus('extensionStatus', statusText, 'info');
+                console.log('Extension status:', status);
+            } catch (error) {
+                showStatus('extensionStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showDebugInfo() {
+            try {
+                const debugInfo = {
+                    userAgent: navigator.userAgent,
+                    url: window.location.href,
+                    timestamp: new Date().toISOString(),
+                    chrome: !!window.chrome,
+                    extensionFunctions: {
+                        isExtensionContextValid: typeof isExtensionContextValid === 'function',
+                        showRecoveryNotification: typeof showRecoveryNotification === 'function',
+                        setupGlobalErrorHandler: typeof setupGlobalErrorHandler === 'function'
+                    }
+                };
+                
+                console.log('Debug information:', debugInfo);
+                showStatus('extensionStatus', '✅ Debug information logged to console', 'success');
+            } catch (error) {
+                showStatus('extensionStatus', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = message;
+            element.className = `status ${type}`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Extension Context Invalidation Test page loaded');
+            showStatus('contextStatus', 'Ready to test extension context handling', 'info');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Extension Context Invalidation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #dc3545;
+        }
+        .header h1 {
+            color: #dc3545;
+            margin: 0;
+        }
+        .debug-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .debug-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #c82333;
+        }
+        .log-output {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Debug Extension Context Invalidation</h1>
+            <p>Debug the extension's context invalidation handling</p>
+        </div>
+
+        <div class="debug-section">
+            <h3>📊 Current Status</h3>
+            <p>Check the current state of the extension and notification systems.</p>
+            <button onclick="checkCurrentStatus()">Check Current Status</button>
+            <button onclick="simulateContextInvalidation()">Simulate Context Invalidation</button>
+            <div class="status" id="currentStatus"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>🔔 Notification System Test</h3>
+            <p>Test the notification systems to see which ones are available.</p>
+            <button onclick="testNotificationSystems()">Test Notification Systems</button>
+            <button onclick="showAllNotifications()">Show All Notifications</button>
+            <button onclick="clearAllNotifications()">Clear All Notifications</button>
+            <div class="status" id="notificationStatus"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>📝 Debug Log</h3>
+            <p>Real-time debug information and console output.</p>
+            <button onclick="startDebugLogging()">Start Debug Logging</button>
+            <button onclick="clearDebugLog()">Clear Debug Log</button>
+            <div class="log-output" id="debugLog"></div>
+        </div>
+    </div>
+
+    <script>
+        let debugLogElement = null;
+        let originalConsoleLog = null;
+        let originalConsoleWarn = null;
+        let originalConsoleError = null;
+
+        // Mock Chrome API for testing
+        if (!window.chrome) {
+            window.chrome = {
+                runtime: {
+                    id: 'test-extension-id',
+                    sendMessage: function(message, callback) {
+                        console.log('Mock chrome.runtime.sendMessage called:', message);
+                        if (callback) {
+                            setTimeout(() => callback({ success: true }), 100);
+                        }
+                    }
+                },
+                storage: {
+                    sync: {
+                        get: function(keys, callback) {
+                            console.log('Mock chrome.storage.sync.get called:', keys);
+                            if (callback) {
+                                setTimeout(() => callback({ veeqoApiKey: 'test-key' }), 100);
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        // Include the notification functions from the extension
+        function showRecoveryNotification(message, type = 'warning') {
+            const existingNotification = document.getElementById('extension-recovery-notification');
+            if (existingNotification) {
+                existingNotification.remove();
+            }
+            
+            const notification = document.createElement('div');
+            notification.id = 'extension-recovery-notification';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: ${type === 'error' ? '#dc3545' : type === 'warning' ? '#ffc107' : '#17a2b8'};
+                color: ${type === 'warning' ? '#000' : '#fff'};
+                padding: 15px 20px;
+                border-radius: 8px;
+                z-index: 10000;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
+                font-weight: 500;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                max-width: 500px;
+                text-align: center;
+                border: 2px solid ${type === 'error' ? '#c82333' : type === 'warning' ? '#e0a800' : '#138496'};
+            `;
+            
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    <span style="font-size: 18px;">
+                        ${type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}
+                    </span>
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" 
+                            style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; margin-left: 10px;">
+                        ×
+                    </button>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 15000);
+        }
+
+        function showSimpleNotification(message) {
+            const existingNotification = document.getElementById('simple-extension-notification');
+            if (existingNotification) {
+                existingNotification.remove();
+            }
+            
+            const notification = document.createElement('div');
+            notification.id = 'simple-extension-notification';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #ffc107;
+                color: #000;
+                padding: 15px 20px;
+                border-radius: 8px;
+                z-index: 10000;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
+                font-weight: 500;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                max-width: 400px;
+                border: 2px solid #e0a800;
+            `;
+            
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    <span style="font-size: 18px;">⚠️</span>
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" 
+                            style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; margin-left: 10px;">
+                        ×
+                    </button>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 10000);
+        }
+
+        function isExtensionContextValid() {
+            try {
+                return chrome && chrome.runtime && chrome.runtime.id;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function checkCurrentStatus() {
+            const status = {
+                chrome: !!window.chrome,
+                runtime: !!(window.chrome && window.chrome.runtime),
+                runtimeId: !!(window.chrome && window.chrome.runtime && window.chrome.runtime.id),
+                storage: !!(window.chrome && window.chrome.storage),
+                contextValid: isExtensionContextValid(),
+                showRecoveryNotification: typeof showRecoveryNotification === 'function',
+                showSimpleNotification: typeof showSimpleNotification === 'function',
+                isExtensionContextValid: typeof isExtensionContextValid === 'function'
+            };
+            
+            const statusText = Object.entries(status)
+                .map(([key, value]) => `${key}: ${value ? '✅' : '❌'}`)
+                .join('<br>');
+            
+            showStatus('currentStatus', statusText, 'info');
+            console.log('Current status:', status);
+        }
+
+        function simulateContextInvalidation() {
+            console.log('Simulating extension context invalidation...');
+            
+            // Simulate the exact scenario from the content script
+            if (!isExtensionContextValid()) {
+                console.warn('Extension context invalidated, creating buttons without order data');
+                console.log('Checking notification functions availability...');
+                console.log('showRecoveryNotification available:', typeof showRecoveryNotification === 'function');
+                console.log('showSimpleNotification available:', typeof showSimpleNotification === 'function');
+                
+                if (typeof showRecoveryNotification === 'function') {
+                    console.log('Showing main recovery notification...');
+                    showRecoveryNotification('Extension context invalidated. Please reload the page to restore full functionality.', 'warning');
+                    showStatus('currentStatus', '✅ Main notification system used', 'success');
+                } else if (typeof showSimpleNotification === 'function') {
+                    console.log('Showing fallback notification...');
+                    showSimpleNotification('Extension context invalidated. Please reload the page to restore full functionality.');
+                    showStatus('currentStatus', '✅ Fallback notification system used', 'success');
+                } else {
+                    console.error('No notification functions available!');
+                    showStatus('currentStatus', '❌ No notification functions available', 'error');
+                }
+            } else {
+                showStatus('currentStatus', '✅ Context is valid - no invalidation to simulate', 'info');
+            }
+        }
+
+        function testNotificationSystems() {
+            const systems = [
+                { name: 'showRecoveryNotification', func: showRecoveryNotification, available: typeof showRecoveryNotification === 'function' },
+                { name: 'showSimpleNotification', func: showSimpleNotification, available: typeof showSimpleNotification === 'function' },
+                { name: 'isExtensionContextValid', func: isExtensionContextValid, available: typeof isExtensionContextValid === 'function' }
+            ];
+            
+            const results = systems.map(system => 
+                `${system.name}: ${system.available ? '✅ Available' : '❌ Not Available'}`
+            ).join('<br>');
+            
+            showStatus('notificationStatus', results, 'info');
+            
+            // Test each available system
+            systems.forEach(system => {
+                if (system.available && system.name.includes('Notification')) {
+                    console.log(`Testing ${system.name}...`);
+                    system.func(`Test message from ${system.name}`);
+                }
+            });
+        }
+
+        function showAllNotifications() {
+            if (typeof showRecoveryNotification === 'function') {
+                showRecoveryNotification('Test main notification system', 'warning');
+            }
+            if (typeof showSimpleNotification === 'function') {
+                showSimpleNotification('Test fallback notification system');
+            }
+            showStatus('notificationStatus', 'All available notifications displayed', 'success');
+        }
+
+        function clearAllNotifications() {
+            const notifications = document.querySelectorAll('#extension-recovery-notification, #simple-extension-notification');
+            notifications.forEach(notification => notification.remove());
+            showStatus('notificationStatus', 'All notifications cleared', 'success');
+        }
+
+        function startDebugLogging() {
+            debugLogElement = document.getElementById('debugLog');
+            
+            // Override console methods to capture output
+            originalConsoleLog = console.log;
+            originalConsoleWarn = console.warn;
+            originalConsoleError = console.error;
+            
+            console.log = function(...args) {
+                originalConsoleLog.apply(console, args);
+                if (debugLogElement) {
+                    debugLogElement.textContent += `[LOG] ${args.join(' ')}\n`;
+                    debugLogElement.scrollTop = debugLogElement.scrollHeight;
+                }
+            };
+            
+            console.warn = function(...args) {
+                originalConsoleWarn.apply(console, args);
+                if (debugLogElement) {
+                    debugLogElement.textContent += `[WARN] ${args.join(' ')}\n`;
+                    debugLogElement.scrollTop = debugLogElement.scrollHeight;
+                }
+            };
+            
+            console.error = function(...args) {
+                originalConsoleError.apply(console, args);
+                if (debugLogElement) {
+                    debugLogElement.textContent += `[ERROR] ${args.join(' ')}\n`;
+                    debugLogElement.scrollTop = debugLogElement.scrollHeight;
+                }
+            };
+            
+            showStatus('notificationStatus', 'Debug logging started - check the log below', 'success');
+            console.log('Debug logging started');
+        }
+
+        function clearDebugLog() {
+            if (debugLogElement) {
+                debugLogElement.textContent = '';
+            }
+            showStatus('notificationStatus', 'Debug log cleared', 'success');
+        }
+
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = message;
+            element.className = `status ${type}`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Debug Extension Context Invalidation page loaded');
+            checkCurrentStatus();
+        });
+    </script>
+</body>
+</html>

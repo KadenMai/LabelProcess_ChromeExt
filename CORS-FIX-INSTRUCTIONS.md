@@ -50,7 +50,7 @@ If you still get CORS errors:
 
 3. **Check API Key**:
    - Verify your API key is correct
-   - Test with the example key: `Vqt/97d4d3d348383c0d721e1a12262da6f9`
+   - Test with the example key: `abc`
 
 4. **Use Test Pages**:
    - Open `test-cors.html` for detailed testing

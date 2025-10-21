@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test USPS Auto-Fill - Veeqo Extension</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e1e5e9;
+        }
+        .header h1 {
+            color: #0052a5;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        .header p {
+            color: #666;
+            margin: 0;
+            font-size: 16px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e1e5e9;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        .test-section h3 {
+            color: #0052a5;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #0052a5 0%, #003d7a 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #0066cc 0%, #004d99 100%);
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .result-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .form-preview {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+        .form-preview h4 {
+            margin-top: 0;
+            color: #0052a5;
+            margin-bottom: 15px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+        .form-row .form-group {
+            flex: 1;
+        }
+        .form-row .form-group.small {
+            flex: 0 0 80px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #0052a5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📮 USPS Auto-Fill Test</h1>
+            <p>Test the enhanced USPS form auto-fill functionality</p>
+        </div>
+
+        <div class="test-section">
+            <h3>🎯 Test USPS Auto-Fill</h3>
+            <p>This test simulates the USPS form auto-fill functionality with sample order data.</p>
+            <div class="button-group">
+                <button id="testAutoFillBtn" class="btn-primary">Test Auto-Fill</button>
+                <button id="testWithRealDataBtn" class="btn-success">Test with Real Order Data</button>
+                <button id="clearFormBtn" class="btn-secondary">Clear Form</button>
+            </div>
+            <div class="status" id="autoFillStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📋 USPS Form Preview</h3>
+            <p>Preview of how the USPS form will be auto-filled with customer and shipping information.</p>
+            <div class="form-preview">
+                <h4>Recipient Information</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="firstName">First Name</label>
+                        <input type="text" id="firstName" placeholder="First Name">
+                    </div>
+                    <div class="form-group small">
+                        <label for="middleInitial">MI</label>
+                        <input type="text" id="middleInitial" placeholder="MI" maxlength="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="lastName">Last Name</label>
+                        <input type="text" id="lastName" placeholder="Last Name">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="company">Company</label>
+                    <input type="text" id="company" placeholder="Company">
+                </div>
+                
+                <h4>Shipping Address</h4>
+                <div class="form-group">
+                    <label for="streetAddress1">Street Address</label>
+                    <input type="text" id="streetAddress1" placeholder="Street Address">
+                </div>
+                <div class="form-group">
+                    <label for="address2AptSuite">Apt/Suite/Other</label>
+                    <input type="text" id="address2AptSuite" placeholder="Apt/Suite/Other">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="city">City</label>
+                        <input type="text" id="city" placeholder="City">
+                    </div>
+                    <div class="form-group">
+                        <label for="zipCode">ZIP Code</label>
+                        <input type="text" id="zipCode" placeholder="ZIP Code">
+                    </div>
+                </div>
+                
+                <h4>Reference Numbers</h4>
+                <div class="form-group">
+                    <label for="referenceNumber">Reference Number</label>
+                    <input type="text" id="referenceNumber" placeholder="Reference Number">
+                </div>
+                <div class="form-group">
+                    <label for="referenceNumber2">Reference Number 2</label>
+                    <input type="text" id="referenceNumber2" placeholder="Reference Number 2">
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🚀 USPS Button Simulation</h3>
+            <p>Simulate clicking a USPS button with order data to test the complete workflow.</p>
+            <div class="button-group">
+                <button id="simulateUSPSBtn" class="btn-primary">Simulate USPS Button Click</button>
+                <button id="openUSPSPageBtn" class="btn-success">Open USPS Page</button>
+            </div>
+            <div class="status" id="simulationStatus"></div>
+            <div class="result-box" id="simulationResults" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Sample order data for testing
+        const sampleOrderData = {
+            id: 12345,
+            reference_number: "ORD-2024-001",
+            customer: {
+                id: 67890,
+                name: "John Michael Doe",
+                email: "john.doe@example.com",
+                company: "Acme Corporation"
+            },
+            shipping_address: {
+                address1: "123 Main Street",
+                address2: "Suite 100",
+                city: "New York",
+                state: "NY",
+                postal_code: "10001",
+                country: "US"
+            },
+            line_items: [
+                { name: "Product A", quantity: 2 },
+                { name: "Product B", quantity: 1 }
+            ],
+            created_at: "2024-01-15T10:30:00Z"
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            document.getElementById('testAutoFillBtn').addEventListener('click', testAutoFill);
+            document.getElementById('testWithRealDataBtn').addEventListener('click', testWithRealData);
+            document.getElementById('clearFormBtn').addEventListener('click', clearForm);
+            document.getElementById('simulateUSPSBtn').addEventListener('click', simulateUSPSButton);
+            document.getElementById('openUSPSPageBtn').addEventListener('click', openUSPSPage);
+        }
+
+        function testAutoFill() {
+            showStatus('autoFillStatus', '🔄 Testing auto-fill with sample data...', 'info');
+            
+            try {
+                // Simulate the auto-fill functionality
+                autoFillUSPSForm(sampleOrderData);
+                showStatus('autoFillStatus', '✅ Auto-fill test completed successfully!', 'success');
+            } catch (error) {
+                showStatus('autoFillStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function testWithRealData() {
+            showStatus('autoFillStatus', '🔄 Testing with real order data...', 'info');
+            
+            try {
+                // Try to get real order data from the extension
+                const response = await chrome.runtime.sendMessage({
+                    action: 'fetchVeeqoOrders',
+                    apiKey: await getApiKey(),
+                    params: { page_size: 1, status: 'awaiting_fulfillment' }
+                });
+
+                if (response && response.success && response.data.orders.length > 0) {
+                    const realOrderData = response.data.orders[0];
+                    autoFillUSPSForm(realOrderData);
+                    showStatus('autoFillStatus', '✅ Auto-fill with real data completed!', 'success');
+                } else {
+                    throw new Error('No real order data available');
+                }
+            } catch (error) {
+                showStatus('autoFillStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        function clearForm() {
+            const fields = ['firstName', 'middleInitial', 'lastName', 'company', 'streetAddress1', 'address2AptSuite', 'city', 'zipCode', 'referenceNumber', 'referenceNumber2'];
+            fields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) field.value = '';
+            });
+            showStatus('autoFillStatus', 'Form cleared', 'info');
+        }
+
+        function simulateUSPSButton() {
+            showStatus('simulationStatus', '🔄 Simulating USPS button click...', 'info');
+            
+            try {
+                // Simulate what happens when a USPS button is clicked
+                const simulation = {
+                    step1: "USPS button clicked with order data",
+                    step2: "Order data stored in session storage",
+                    step3: "USPS page opened in new tab",
+                    step4: "Auto-fill script injected into USPS page",
+                    step5: "Form fields automatically filled with customer and shipping data",
+                    orderData: sampleOrderData,
+                    timestamp: new Date().toISOString()
+                };
+
+                showResults('simulationResults', simulation);
+                showStatus('simulationStatus', '✅ USPS button simulation completed!', 'success');
+            } catch (error) {
+                showStatus('simulationStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        function openUSPSPage() {
+            showStatus('simulationStatus', '🔄 Opening USPS page...', 'info');
+            
+            try {
+                // Store order data in session storage
+                sessionStorage.setItem('veeqoOrderData', JSON.stringify(sampleOrderData));
+                
+                // Open USPS page
+                window.open('https://cnsb.usps.com/label-manager/new-label/quick', '_blank');
+                
+                showStatus('simulationStatus', '✅ USPS page opened with order data in session storage!', 'success');
+            } catch (error) {
+                showStatus('simulationStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // Auto-fill functions (simplified version of the actual implementation)
+        function autoFillUSPSForm(orderData) {
+            console.log('Auto-filling USPS form with order data:', orderData);
+            
+            if (!orderData) {
+                console.log('No order data provided for auto-fill');
+                return;
+            }
+            
+            try {
+                fillCustomerInformation(orderData);
+                fillShippingAddress(orderData);
+                fillReferenceNumbers(orderData);
+                console.log('USPS form auto-fill completed successfully');
+            } catch (error) {
+                console.error('Error auto-filling USPS form:', error);
+                throw error;
+            }
+        }
+
+        function fillCustomerInformation(orderData) {
+            const customer = orderData.customer || {};
+            const customerName = customer.name || '';
+            
+            const nameParts = parseCustomerName(customerName);
+            
+            // Fill First Name
+            const firstNameField = document.getElementById('firstName');
+            if (firstNameField) {
+                firstNameField.value = nameParts.firstName;
+            }
+            
+            // Fill Middle Initial
+            const middleInitialField = document.getElementById('middleInitial');
+            if (middleInitialField) {
+                middleInitialField.value = nameParts.middleInitial;
+            }
+            
+            // Fill Last Name (use "." if empty as requested)
+            const lastNameField = document.getElementById('lastName');
+            if (lastNameField) {
+                lastNameField.value = nameParts.lastName || '.';
+            }
+            
+            // Fill Company
+            const companyField = document.getElementById('company');
+            if (companyField) {
+                companyField.value = customer.company || '';
+            }
+        }
+
+        function fillShippingAddress(orderData) {
+            const shippingAddress = orderData.shipping_address || orderData.delivery_address || {};
+            
+            // Fill City (first as requested)
+            const cityField = document.getElementById('city');
+            if (cityField) {
+                cityField.value = shippingAddress.city || '';
+            }
+            
+            // Fill Street Address
+            const streetAddressField = document.getElementById('streetAddress1');
+            if (streetAddressField) {
+                const address = formatStreetAddress(shippingAddress);
+                streetAddressField.value = address;
+            }
+            
+            // Fill Apt/Suite if available
+            const aptSuiteField = document.getElementById('address2AptSuite');
+            if (aptSuiteField && shippingAddress.address2) {
+                aptSuiteField.value = shippingAddress.address2;
+            }
+            
+            // Fill Zip Code (last as requested)
+            const zipCodeField = document.getElementById('zipCode');
+            if (zipCodeField) {
+                zipCodeField.value = shippingAddress.postal_code || shippingAddress.zip_code || '';
+            }
+        }
+
+        function fillReferenceNumbers(orderData) {
+            // Fill first reference number with order number
+            const referenceNumberField = document.getElementById('referenceNumber');
+            if (referenceNumberField) {
+                referenceNumberField.value = orderData.reference_number || '';
+            }
+            
+            // Fill second reference number with order ID
+            const referenceNumber2Field = document.getElementById('referenceNumber2');
+            if (referenceNumber2Field) {
+                referenceNumber2Field.value = orderData.id ? `VEEQO-${orderData.id}` : '';
+            }
+        }
+
+        function parseCustomerName(fullName) {
+            if (!fullName || typeof fullName !== 'string') {
+                return { firstName: '', middleInitial: '', lastName: '' };
+            }
+            
+            const nameParts = fullName.trim().split(/\s+/);
+            
+            if (nameParts.length === 1) {
+                return { firstName: nameParts[0], middleInitial: '', lastName: '' };
+            } else if (nameParts.length === 2) {
+                return { firstName: nameParts[0], middleInitial: '', lastName: nameParts[1] };
+            } else if (nameParts.length === 3) {
+                return { firstName: nameParts[0], middleInitial: nameParts[1].charAt(0).toUpperCase(), lastName: nameParts[2] };
+            } else {
+                return {
+                    firstName: nameParts[0],
+                    middleInitial: nameParts.slice(1, -1).map(part => part.charAt(0).toUpperCase()).join(''),
+                    lastName: nameParts[nameParts.length - 1]
+                };
+            }
+        }
+
+        function formatStreetAddress(address) {
+            const parts = [];
+            if (address.address1) parts.push(address.address1);
+            if (address.address2) parts.push(address.address2);
+            if (address.street) parts.push(address.street);
+            if (address.line1) parts.push(address.line1);
+            if (address.line2) parts.push(address.line2);
+            return parts.join(' ').trim();
+        }
+
+        async function getApiKey() {
+            try {
+                const result = await chrome.storage.sync.get(['veeqoApiKey']);
+                return result.veeqoApiKey;
+            } catch (error) {
+                console.error('Error getting API key:', error);
+                return null;
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+            element.style.display = 'block';
+        }
+
+        function showResults(elementId, data) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(data, null, 2);
+            element.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

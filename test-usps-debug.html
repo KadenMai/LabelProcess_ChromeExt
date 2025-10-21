@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USPS Auto-Fill Debug Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #007bff;
+        }
+        .header h1 {
+            color: #007bff;
+            margin: 0;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .form-preview {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+        .form-row .form-group {
+            flex: 1;
+        }
+        .form-row .form-group.small {
+            flex: 0 0 80px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 USPS Auto-Fill Debug Test</h1>
+            <p>Test and debug the USPS form auto-fill functionality</p>
+        </div>
+
+        <div class="test-section">
+            <h3>📋 Test Data Setup</h3>
+            <p>Set up test data in session storage to simulate the Veeqo → USPS workflow.</p>
+            <button onclick="setupTestData()">Setup Test Data</button>
+            <button onclick="clearTestData()">Clear Test Data</button>
+            <button onclick="checkSessionStorage()">Check Session Storage</button>
+            <div class="status" id="dataStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🚀 USPS Page Simulation</h3>
+            <p>Simulate opening the USPS page with auto-fill functionality.</p>
+            <button onclick="openUSPSPage()">Open USPS Page</button>
+            <button onclick="openUSPSWithDebug()">Open USPS with Debug</button>
+            <div class="status" id="uspsStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📝 Form Field Detection Test</h3>
+            <p>Test form field detection and auto-fill functionality.</p>
+            <button onclick="testFormDetection()">Test Form Detection</button>
+            <button onclick="testAutoFill()">Test Auto-Fill</button>
+            <button onclick="clearForm()">Clear Form</button>
+            <div class="status" id="formStatus"></div>
+            
+            <div class="form-preview">
+                <h4>USPS Form Preview</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="firstName">First Name</label>
+                        <input type="text" id="firstName" placeholder="First Name">
+                    </div>
+                    <div class="form-group small">
+                        <label for="middleInitial">MI</label>
+                        <input type="text" id="middleInitial" placeholder="MI" maxlength="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="lastName">Last Name</label>
+                        <input type="text" id="lastName" placeholder="Last Name">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="company">Company</label>
+                    <input type="text" id="company" placeholder="Company">
+                </div>
+                <div class="form-group">
+                    <label for="streetAddress1">Street Address</label>
+                    <input type="text" id="streetAddress1" placeholder="Street Address">
+                </div>
+                <div class="form-group">
+                    <label for="address2AptSuite">Apt/Suite/Other</label>
+                    <input type="text" id="address2AptSuite" placeholder="Apt/Suite/Other">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="city">City</label>
+                        <input type="text" id="city" placeholder="City">
+                    </div>
+                    <div class="form-group">
+                        <label for="zipCode">ZIP Code</label>
+                        <input type="text" id="zipCode" placeholder="ZIP Code">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="referenceNumber">Reference Number</label>
+                    <input type="text" id="referenceNumber" placeholder="Reference Number">
+                </div>
+                <div class="form-group">
+                    <label for="referenceNumber2">Reference Number 2</label>
+                    <input type="text" id="referenceNumber2" placeholder="Reference Number 2">
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔧 Debug Information</h3>
+            <p>Debug information and console logs.</p>
+            <button onclick="showDebugInfo()">Show Debug Info</button>
+            <button onclick="clearConsole()">Clear Console</button>
+            <div class="status" id="debugStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        // Sample order data for testing
+        const sampleOrderData = {
+            id: 12345,
+            reference_number: "ORD-2024-001",
+            customer: {
+                id: 67890,
+                name: "John Michael Doe",
+                email: "john.doe@example.com",
+                company: "Acme Corporation"
+            },
+            shipping_address: {
+                address1: "123 Main Street",
+                address2: "Suite 100",
+                city: "New York",
+                state: "NY",
+                postal_code: "10001",
+                country: "US"
+            },
+            line_items: [
+                { name: "Product A", quantity: 2 },
+                { name: "Product B", quantity: 1 }
+            ],
+            created_at: "2024-01-15T10:30:00Z"
+        };
+
+        function setupTestData() {
+            try {
+                sessionStorage.setItem('veeqoOrderData', JSON.stringify(sampleOrderData));
+                showStatus('dataStatus', '✅ Test data set up successfully in session storage', 'success');
+                console.log('Test data set up:', sampleOrderData);
+            } catch (error) {
+                showStatus('dataStatus', '❌ Error setting up test data: ' + error.message, 'error');
+            }
+        }
+
+        function clearTestData() {
+            try {
+                sessionStorage.removeItem('veeqoOrderData');
+                showStatus('dataStatus', '✅ Test data cleared from session storage', 'success');
+            } catch (error) {
+                showStatus('dataStatus', '❌ Error clearing test data: ' + error.message, 'error');
+            }
+        }
+
+        function checkSessionStorage() {
+            try {
+                const data = sessionStorage.getItem('veeqoOrderData');
+                if (data) {
+                    const parsedData = JSON.parse(data);
+                    showStatus('dataStatus', '✅ Session storage contains: ' + parsedData.reference_number, 'success');
+                    console.log('Session storage data:', parsedData);
+                } else {
+                    showStatus('dataStatus', 'ℹ️ No data found in session storage', 'info');
+                }
+            } catch (error) {
+                showStatus('dataStatus', '❌ Error checking session storage: ' + error.message, 'error');
+            }
+        }
+
+        function openUSPSPage() {
+            try {
+                // Set up test data first
+                sessionStorage.setItem('veeqoOrderData', JSON.stringify(sampleOrderData));
+                
+                // Open USPS page
+                window.open('https://cnsb.usps.com/label-manager/new-label/quick', '_blank');
+                
+                showStatus('uspsStatus', '✅ USPS page opened with test data in session storage', 'success');
+            } catch (error) {
+                showStatus('uspsStatus', '❌ Error opening USPS page: ' + error.message, 'error');
+            }
+        }
+
+        function openUSPSWithDebug() {
+            try {
+                // Set up test data first
+                sessionStorage.setItem('veeqoOrderData', JSON.stringify(sampleOrderData));
+                
+                // Open USPS page
+                const uspsWindow = window.open('https://cnsb.usps.com/label-manager/new-label/quick', '_blank');
+                
+                showStatus('uspsStatus', '✅ USPS page opened with debug mode. Check console for detailed logs.', 'success');
+                
+                // Note: The debug script will be injected by the extension
+                console.log('USPS page opened with debug mode. Look for the debug panel on the USPS page.');
+            } catch (error) {
+                showStatus('uspsStatus', '❌ Error opening USPS page: ' + error.message, 'error');
+            }
+        }
+
+        function testFormDetection() {
+            const fields = ['firstName', 'middleInitial', 'lastName', 'company', 'streetAddress1', 'address2AptSuite', 'city', 'zipCode', 'referenceNumber', 'referenceNumber2'];
+            const results = {};
+            
+            fields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                results[fieldId] = {
+                    exists: !!field,
+                    visible: field ? field.offsetParent !== null : false,
+                    enabled: field ? !field.disabled : false
+                };
+            });
+            
+            console.log('Form field detection results:', results);
+            showStatus('formStatus', '✅ Form field detection completed. Check console for results.', 'success');
+        }
+
+        function testAutoFill() {
+            try {
+                // Simulate the auto-fill functionality
+                autoFillForm(sampleOrderData);
+                showStatus('formStatus', '✅ Auto-fill test completed successfully!', 'success');
+            } catch (error) {
+                showStatus('formStatus', '❌ Auto-fill test failed: ' + error.message, 'error');
+            }
+        }
+
+        function clearForm() {
+            const fields = ['firstName', 'middleInitial', 'lastName', 'company', 'streetAddress1', 'address2AptSuite', 'city', 'zipCode', 'referenceNumber', 'referenceNumber2'];
+            fields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) field.value = '';
+            });
+            showStatus('formStatus', '✅ Form cleared', 'success');
+        }
+
+        function showDebugInfo() {
+            const debugInfo = {
+                userAgent: navigator.userAgent,
+                url: window.location.href,
+                sessionStorage: Object.keys(sessionStorage),
+                localStorage: Object.keys(localStorage),
+                documentReadyState: document.readyState,
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log('Debug information:', debugInfo);
+            showStatus('debugStatus', '✅ Debug information logged to console', 'success');
+        }
+
+        function clearConsole() {
+            console.clear();
+            showStatus('debugStatus', '✅ Console cleared', 'success');
+        }
+
+        // Auto-fill functions (simplified version)
+        function autoFillForm(orderData) {
+            console.log('Auto-filling form with data:', orderData);
+            
+            const customer = orderData.customer || {};
+            const customerName = customer.name || '';
+            const nameParts = parseCustomerName(customerName);
+            
+            // Fill customer information
+            document.getElementById('firstName').value = nameParts.firstName;
+            document.getElementById('middleInitial').value = nameParts.middleInitial;
+            document.getElementById('lastName').value = nameParts.lastName || '.';
+            document.getElementById('company').value = customer.company || '';
+            
+            // Fill shipping address
+            const shippingAddress = orderData.shipping_address || {};
+            document.getElementById('city').value = shippingAddress.city || '';
+            document.getElementById('streetAddress1').value = shippingAddress.address1 || '';
+            document.getElementById('address2AptSuite').value = shippingAddress.address2 || '';
+            document.getElementById('zipCode').value = shippingAddress.postal_code || '';
+            
+            // Fill reference numbers
+            document.getElementById('referenceNumber').value = orderData.reference_number || '';
+            document.getElementById('referenceNumber2').value = orderData.id ? `VEEQO-${orderData.id}` : '';
+        }
+
+        function parseCustomerName(fullName) {
+            if (!fullName || typeof fullName !== 'string') {
+                return { firstName: '', middleInitial: '', lastName: '' };
+            }
+            
+            const nameParts = fullName.trim().split(/\s+/);
+            
+            if (nameParts.length === 1) {
+                return { firstName: nameParts[0], middleInitial: '', lastName: '' };
+            } else if (nameParts.length === 2) {
+                return { firstName: nameParts[0], middleInitial: '', lastName: nameParts[1] };
+            } else if (nameParts.length === 3) {
+                return { 
+                    firstName: nameParts[0], 
+                    middleInitial: nameParts[1].charAt(0).toUpperCase(), 
+                    lastName: nameParts[2] 
+                };
+            } else {
+                return {
+                    firstName: nameParts[0],
+                    middleInitial: nameParts.slice(1, -1).map(part => part.charAt(0).toUpperCase()).join(''),
+                    lastName: nameParts[nameParts.length - 1]
+                };
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('USPS Auto-Fill Debug Test page loaded');
+            showStatus('dataStatus', 'Ready to test USPS auto-fill functionality', 'info');
+        });
+    </script>
+</body>
+</html>
