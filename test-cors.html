@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORS Test for Veeqo API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button {
+            background: #0052a5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #003d7a; }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CORS Test for Veeqo API</h1>
+        <p>This page tests different methods to access the Veeqo API and identify CORS issues.</p>
+        
+        <div class="test-section info">
+            <h3>Test 1: Direct Fetch (Browser)</h3>
+            <p>Tests if the browser can make direct requests to Veeqo API.</p>
+            <button id="testDirectBtn">Test Direct Fetch</button>
+            <div id="directResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section info">
+            <h3>Test 2: Extension Background Script</h3>
+            <p>Tests if the extension background script can access the API.</p>
+            <button id="testExtensionBtn">Test Extension API</button>
+            <div id="extensionResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section info">
+            <h3>Test 3: XMLHttpRequest</h3>
+            <p>Tests using XMLHttpRequest instead of fetch.</p>
+            <button id="testXHRBtn">Test XMLHttpRequest</button>
+            <div id="xhrResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section info">
+            <h3>Test 4: Different Headers</h3>
+            <p>Tests with different header combinations.</p>
+            <button id="testHeadersBtn">Test Different Headers</button>
+            <div id="headersResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="form-group">
+            <label for="apiKey">API Key:</label>
+            <input type="text" id="apiKey" placeholder="Enter your Veeqo API key" style="width: 100%; padding: 8px; margin: 5px 0;">
+        </div>
+    </div>
+
+    <script>
+        const apiKey = 'Vqt/97d4d3d348383c0d721e1a12262da6f9'; // Example key
+        
+        function showResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.style.display = 'block';
+            element.className = `result ${type}`;
+        }
+        
+        // Test 1: Direct Fetch
+        document.getElementById('testDirectBtn').addEventListener('click', async () => {
+            const key = document.getElementById('apiKey').value || apiKey;
+            showResult('directResult', 'Testing direct fetch...', 'info');
+            
+            try {
+                const response = await fetch('https://api.veeqo.com/orders?page_size=1', {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': key,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    ok: response.ok
+                };
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    result.data = data;
+                    showResult('directResult', '✅ Direct fetch successful!\n\n' + JSON.stringify(result, null, 2), 'success');
+                } else {
+                    const errorText = await response.text();
+                    result.error = errorText;
+                    showResult('directResult', '❌ Direct fetch failed!\n\n' + JSON.stringify(result, null, 2), 'error');
+                }
+            } catch (error) {
+                showResult('directResult', '❌ Direct fetch error: ' + error.message, 'error');
+            }
+        });
+        
+        // Test 2: Extension API
+        document.getElementById('testExtensionBtn').addEventListener('click', async () => {
+            const key = document.getElementById('apiKey').value || apiKey;
+            showResult('extensionResult', 'Testing extension API...', 'info');
+            
+            if (typeof chrome === 'undefined' || !chrome.runtime) {
+                showResult('extensionResult', '❌ Chrome extension API not available', 'error');
+                return;
+            }
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'testVeeqoApi',
+                    apiKey: key
+                });
+                
+                if (response && response.success) {
+                    showResult('extensionResult', '✅ Extension API successful!\n\n' + JSON.stringify(response, null, 2), 'success');
+                } else {
+                    showResult('extensionResult', '❌ Extension API failed!\n\n' + JSON.stringify(response, null, 2), 'error');
+                }
+            } catch (error) {
+                showResult('extensionResult', '❌ Extension API error: ' + error.message, 'error');
+            }
+        });
+        
+        // Test 3: XMLHttpRequest
+        document.getElementById('testXHRBtn').addEventListener('click', () => {
+            const key = document.getElementById('apiKey').value || apiKey;
+            showResult('xhrResult', 'Testing XMLHttpRequest...', 'info');
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', 'https://api.veeqo.com/orders?page_size=1', true);
+            xhr.setRequestHeader('x-api-key', key);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    const result = {
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        responseText: xhr.responseText,
+                        readyState: xhr.readyState
+                    };
+                    
+                    if (xhr.status === 200) {
+                        try {
+                            result.data = JSON.parse(xhr.responseText);
+                            showResult('xhrResult', '✅ XMLHttpRequest successful!\n\n' + JSON.stringify(result, null, 2), 'success');
+                        } catch (e) {
+                            showResult('xhrResult', '✅ XMLHttpRequest successful (non-JSON)!\n\n' + JSON.stringify(result, null, 2), 'success');
+                        }
+                    } else {
+                        showResult('xhrResult', '❌ XMLHttpRequest failed!\n\n' + JSON.stringify(result, null, 2), 'error');
+                    }
+                }
+            };
+            
+            xhr.onerror = function() {
+                showResult('xhrResult', '❌ XMLHttpRequest network error', 'error');
+            };
+            
+            xhr.send();
+        });
+        
+        // Test 4: Different Headers
+        document.getElementById('testHeadersBtn').addEventListener('click', async () => {
+            const key = document.getElementById('apiKey').value || apiKey;
+            showResult('headersResult', 'Testing different headers...', 'info');
+            
+            const tests = [
+                {
+                    name: 'Minimal Headers',
+                    headers: { 'x-api-key': key }
+                },
+                {
+                    name: 'With Accept',
+                    headers: { 
+                        'x-api-key': key,
+                        'Accept': 'application/json'
+                    }
+                },
+                {
+                    name: 'With User-Agent',
+                    headers: { 
+                        'x-api-key': key,
+                        'User-Agent': 'Chrome Extension'
+                    }
+                },
+                {
+                    name: 'All Headers',
+                    headers: { 
+                        'x-api-key': key,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-Agent': 'Chrome Extension'
+                    }
+                }
+            ];
+            
+            let results = [];
+            
+            for (const test of tests) {
+                try {
+                    const response = await fetch('https://api.veeqo.com/orders?page_size=1', {
+                        method: 'GET',
+                        headers: test.headers
+                    });
+                    
+                    results.push({
+                        test: test.name,
+                        status: response.status,
+                        success: response.ok
+                    });
+                } catch (error) {
+                    results.push({
+                        test: test.name,
+                        error: error.message
+                    });
+                }
+            }
+            
+            showResult('headersResult', 'Header Test Results:\n\n' + JSON.stringify(results, null, 2), 'info');
+        });
+        
+        // Auto-fill API key
+        document.getElementById('apiKey').value = apiKey;
+    </script>
+</body>
+</html>

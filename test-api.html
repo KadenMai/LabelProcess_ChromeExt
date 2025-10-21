@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veeqo API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #0052a5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #003d7a;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Veeqo API Connection Test</h1>
+        <p>This page helps test the Veeqo API connection to identify issues.</p>
+        
+        <div class="form-group">
+            <label for="apiKey">Veeqo API Key:</label>
+            <input type="text" id="apiKey" placeholder="Enter your Veeqo API key (starts with Vqt/)">
+        </div>
+        
+        <button id="testDirectBtn">Test Direct API Call</button>
+        <button id="testExtensionBtn">Test Extension API</button>
+        <button id="clearResultsBtn">Clear Results</button>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function showResult(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.textContent = message;
+            results.appendChild(div);
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        async function testDirectAPI() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            if (!apiKey) {
+                showResult('Please enter your API key first', 'error');
+                return;
+            }
+            
+            showResult('Testing direct API call...', 'info');
+            
+            try {
+                const response = await fetch('https://api.veeqo.com/orders?page_size=1', {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    ok: response.ok
+                };
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    result.data = data;
+                    showResult('✅ Direct API call successful!\n\n' + JSON.stringify(result, null, 2), 'success');
+                } else {
+                    const errorText = await response.text();
+                    result.error = errorText;
+                    showResult('❌ Direct API call failed!\n\n' + JSON.stringify(result, null, 2), 'error');
+                }
+            } catch (error) {
+                showResult('❌ Direct API call error: ' + error.message, 'error');
+            }
+        }
+        
+        async function testExtensionAPI() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            if (!apiKey) {
+                showResult('Please enter your API key first', 'error');
+                return;
+            }
+            
+            if (typeof chrome === 'undefined' || !chrome.runtime) {
+                showResult('❌ Chrome extension API not available. This test only works in the extension context.', 'error');
+                return;
+            }
+            
+            showResult('Testing extension API call...', 'info');
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'testVeeqoApi',
+                    apiKey: apiKey
+                });
+                
+                if (response && response.success) {
+                    showResult('✅ Extension API call successful!\n\n' + JSON.stringify(response, null, 2), 'success');
+                } else {
+                    showResult('❌ Extension API call failed!\n\n' + JSON.stringify(response, null, 2), 'error');
+                }
+            } catch (error) {
+                showResult('❌ Extension API call error: ' + error.message, 'error');
+            }
+        }
+        
+        // Auto-fill with example key format
+        document.getElementById('apiKey').placeholder = 'Vqt/97d4d3d348383c0d721e1a12262da6f9';
+        
+        // Setup event listeners
+        document.getElementById('testDirectBtn').addEventListener('click', testDirectAPI);
+        document.getElementById('testExtensionBtn').addEventListener('click', testExtensionAPI);
+        document.getElementById('clearResultsBtn').addEventListener('click', clearResults);
+    </script>
+</body>
+</html>

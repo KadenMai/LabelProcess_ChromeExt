@@ -9,8 +9,9 @@ const USPS_LABEL_MANAGER_URL = 'https://cnsb.usps.com/label-manager/new-label/qu
 /**
  * Opens USPS Label Manager in a new tab
  * This function is called when the USPS button is clicked
+ * @param {Object} orderData - Optional order data for enhanced functionality
  */
-function goToUSPS() {
+function goToUSPS(orderData = null) {
     try {
         // Send message to background script to open USPS tab
         chrome.runtime.sendMessage({
@@ -38,20 +39,27 @@ function goToUSPS() {
 
 /**
  * Creates a USPS button element
+ * @param {Object} orderData - Optional order data to enhance button functionality
  * @returns {HTMLButtonElement} The created button element
  */
-function createUSPSButton() {
+function createUSPSButton(orderData = null) {
     const button = document.createElement('button');
     button.textContent = 'USPS';
     button.className = 'usps-label-button';
     button.type = 'button';
-    button.title = 'Open USPS Label Manager';
+    button.title = orderData ? `Open USPS Label Manager for Order ${orderData.reference_number}` : 'Open USPS Label Manager';
+    
+    // Store order data as a data attribute for potential future use
+    if (orderData) {
+        button.setAttribute('data-order-id', orderData.id);
+        button.setAttribute('data-order-number', orderData.reference_number);
+    }
     
     // Add click event listener
     button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        goToUSPS();
+        goToUSPS(orderData);
     });
     
     return button;

@@ -6,17 +6,26 @@
   "permissions": [
     "activeTab",
     "tabs",
-    "scripting"
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.veeqo.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["*://app.veeqo.com/*"],
-      "js": ["js/usps-functions.js", "js/content-script.js"],
+      "js": ["js/usps-functions.js", "js/veeqo-api.js", "js/api-proxy.js", "js/content-script.js"],
       "css": ["css/usps-button.css"],
       "run_at": "document_end"
     }
   ],
   "background": {
     "service_worker": "js/background.js"
-  }
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Veeqo USPS Settings"
+  },
+  "options_page": "options.html"
 }
