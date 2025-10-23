@@ -460,6 +460,7 @@ function showAllUSPSButtons() {
     }
 }
 
+
 /**
  * Add "Fill Order Data" button near the bulk actions button
  */
@@ -588,11 +589,13 @@ async function handleFillOrderDataClick() {
         localStorage.setItem('veeqoOrderData', JSON.stringify(orderDataMap));
         console.log('Order data stored in localStorage');
         
+        
         // Clear progress interval
         clearInterval(progressInterval);
         
         // Show all USPS buttons now that data is loaded
         showAllUSPSButtons();
+        
         
         // Restore button state
         button.textContent = originalText;
@@ -882,6 +885,7 @@ async function fetchAllOrderData(orderNumbers) {
         }
         
         console.log(`Successfully matched ${Object.keys(orderDataMap).length} out of ${orderNumbers.length} orders`);
+        
         
     } catch (error) {
         console.error('Error fetching order data:', error);

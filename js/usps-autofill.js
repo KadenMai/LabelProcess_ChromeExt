@@ -140,6 +140,9 @@ function autoFillUSPSForm(orderData) {
         // Show a visual indicator that auto-fill was successful
         showAutoFillSuccess();
         
+        // Fill order info display in the second div with type="info"
+        fillOrderInfoDisplay(orderData);
+        
     } catch (error) {
         console.error('Error auto-filling USPS form:', error);
         
@@ -179,6 +182,76 @@ function showAutoFillSuccess() {
             successDiv.parentNode.removeChild(successDiv);
         }
     }, 3000);
+}
+
+/**
+ * Fill order information display in the second div with type="info"
+ * @param {Object} orderData - Order data to display
+ */
+function fillOrderInfoDisplay(orderData) {
+    console.log('🔍 Looking for divs with type="info" on USPS page...');
+    
+    // Find all divs with type="info"
+    const infoDivs = document.querySelectorAll('div[type="info"]');
+    console.log(`🔍 Found ${infoDivs.length} divs with type="info"`);
+    
+    if (infoDivs.length < 2) {
+        console.log('❌ Need at least 2 divs with type="info", found:', infoDivs.length);
+        return;
+    }
+    
+    // Select the second div (index 1)
+    const targetDiv = infoDivs[1];
+    console.log('✅ Selected second div with type="info":', targetDiv);
+    
+    // Extract information from order data
+    const shippingAddress = orderData.shipping_addresses;
+    
+    if (!shippingAddress) {
+        console.log('❌ No shipping address data available');
+        return;
+    }
+    
+    // Build the display content with proper line breaks and spacing
+    let displayContent = '';
+    
+    // Name
+    const fullName = `${shippingAddress.first_name || ''} ${shippingAddress.last_name || ''}`.trim();
+    if (fullName) {
+        displayContent += `<strong>Name: </strong> ${fullName}`;
+    }
+    
+    // Address
+    const address1 = shippingAddress.address1 || '';
+    const address2 = shippingAddress.address2 || '';
+    const city = shippingAddress.city || '';
+    const state = shippingAddress.state || '';
+    const zip = shippingAddress.zip || '';
+    
+    const addressParts = [];
+    if (address1) addressParts.push(address1);
+    if (address2) addressParts.push(address2);
+    if (city) addressParts.push(city);
+    if (state) addressParts.push(state);
+    if (zip) addressParts.push(zip);
+    
+    if (addressParts.length > 0) {
+        displayContent += ` | <strong> Address: </strong> ${addressParts.join(', ')}`;
+    }
+    
+    // Veeqo Rate
+    if (orderData.veeqo_shipping_rate) {
+        displayContent += ` | <strong> Veeqo Rate: </strong> ${orderData.veeqo_shipping_rate}`;
+    }
+    
+    // Set the content with proper styling
+    targetDiv.innerHTML = displayContent;
+    targetDiv.style.whiteSpace = 'pre-line'; // Allow line breaks
+    targetDiv.style.lineHeight = '1.6'; // Better spacing
+    targetDiv.style.fontSize = '14px'; // Ensure readable font size
+    
+    console.log('✅ Order information filled in second div with type="info" on USPS page');
+    console.log('🔍 Content:', displayContent);
 }
 
 /**
@@ -1198,13 +1271,86 @@ function observeFormChanges(orderData) {
 if (isUSPSFormPage()) {
     console.log('USPS form page detected, initializing auto-fill...');
     
-    // Wait for DOM to be ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeUSPSAutoFill);
-    } else {
-        // Add a small delay to ensure the page is fully loaded
-        setTimeout(initializeUSPSAutoFill, 100);
+    // Use dynamic detection instead of fixed delays
+    waitForUSPSPageReady();
+}
+
+/**
+ * Wait for USPS page to be ready using dynamic detection
+ */
+function waitForUSPSPageReady() {
+    console.log('🔍 Starting dynamic USPS page readiness detection...');
+    
+    // Check if page is ready right now
+    if (isUSPSPageReady()) {
+        console.log('✅ USPS page is already ready, initializing immediately');
+        initializeUSPSAutoFill();
+        return;
     }
+    
+    // Set up dynamic monitoring
+    let checkCount = 0;
+    const maxChecks = 100; // Maximum checks (about 10 seconds)
+    
+    const checkInterval = setInterval(() => {
+        checkCount++;
+        console.log(`🔍 Checking USPS page readiness (${checkCount}/${maxChecks})...`);
+        
+        if (isUSPSPageReady()) {
+            console.log('✅ USPS page is now ready, initializing auto-fill');
+            clearInterval(checkInterval);
+            initializeUSPSAutoFill();
+        } else if (checkCount >= maxChecks) {
+            console.log('❌ Max checks reached, USPS page may not be ready');
+            clearInterval(checkInterval);
+        }
+    }, 100); // Check every 100ms
+}
+
+/**
+ * Check if USPS page is ready for auto-fill
+ * @returns {boolean} True if page is ready
+ */
+function isUSPSPageReady() {
+    // Check for essential USPS form elements
+    const requiredElements = [
+        'firstName',
+        'lastName', 
+        'city',
+        'streetAddress1',
+        'quick-flow-state',
+        'zipCode'
+    ];
+    
+    const foundElements = requiredElements.map(id => {
+        const element = document.getElementById(id);
+        return { id, found: !!element, visible: element && element.offsetParent !== null };
+    });
+    
+    const allFound = foundElements.every(el => el.found);
+    const allVisible = foundElements.every(el => el.visible);
+    
+    // Also check if page has finished loading
+    const pageLoaded = document.readyState === 'complete';
+    
+    // Check for USPS-specific indicators
+    const hasUSPSContent = document.querySelector('[data-testid*="form"]') || 
+                          document.querySelector('.form-control') ||
+                          document.querySelector('input[type="text"]');
+    
+    const isReady = allFound && allVisible && pageLoaded && hasUSPSContent;
+    
+    if (!isReady) {
+        console.log('🔍 Page readiness check:', {
+            allFound,
+            allVisible, 
+            pageLoaded,
+            hasUSPSContent,
+            elements: foundElements
+        });
+    }
+    
+    return isReady;
 }
 
 // Export functions for use in other scripts
