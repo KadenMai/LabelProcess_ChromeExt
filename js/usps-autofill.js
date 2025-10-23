@@ -499,20 +499,20 @@ function fillStateAndZipManually(shippingAddress) {
  * @param {Object} orderData - Order data
  */
 function fillReferenceNumbers(orderData) {
-    // Fill reference_number into referenceNumber field
+    // Fill number into referenceNumber field (Reference 1)
     const referenceNumberField = document.getElementById(USPS_FORM_FIELDS.referenceNumber);
     if (referenceNumberField) {
-        referenceNumberField.value = orderData.reference_number || '';
+        referenceNumberField.value = orderData.number || '';
         triggerInputEvent(referenceNumberField);
-        console.log('Filled Reference Number:', orderData.reference_number || '');
+        console.log('Filled Reference Number (Reference 1):', orderData.number || '');
     }
     
-    // Fill number into referenceNumber2 field
+    // Fill reference_number into referenceNumber2 field (Reference 2)
     const referenceNumber2Field = document.getElementById(USPS_FORM_FIELDS.referenceNumber2);
     if (referenceNumber2Field) {
-        referenceNumber2Field.value = orderData.number || '';
+        referenceNumber2Field.value = orderData.reference_number || '';
         triggerInputEvent(referenceNumber2Field);
-        console.log('Filled Reference Number 2:', orderData.number || '');
+        console.log('Filled Reference Number 2 (Reference 2):', orderData.reference_number || '');
     }
 }
 
