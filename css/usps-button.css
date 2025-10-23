@@ -65,6 +65,11 @@
     box-shadow: none !important;
 }
 
+/* Hidden State - Initially hidden until data is loaded */
+.usps-label-button.usps-button-hidden {
+    display: none !important;
+}
+
 /* Loading State (if needed) */
 .usps-label-button.loading {
     position: relative !important;

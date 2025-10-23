@@ -54,26 +54,60 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  * Handle opening USPS tab
  */
 function handleOpenUSPSTab(request, sender, sendResponse) {
-    const uspsUrl = 'https://cnsb.usps.com/label-manager/new-label/quick';
+    const { orderData } = request;
     
-    chrome.tabs.create({
-        url: uspsUrl,
-        active: true
-    }, (tab) => {
-        if (chrome.runtime.lastError) {
-            console.error('Error opening USPS tab:', chrome.runtime.lastError);
-            sendResponse({ 
-                success: false, 
-                error: chrome.runtime.lastError.message 
+    console.log('🔍 Background: Opening USPS tab with order data:', orderData);
+    
+    // Store order data in chrome.storage.local with a unique key
+    if (orderData) {
+        const dataKey = `veeqoOrderData_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        chrome.storage.local.set({ [dataKey]: orderData }, () => {
+            console.log('🔍 Background: Order data stored with key:', dataKey);
+            
+            // Create URL with the data key as parameter
+            const uspsUrl = `https://cnsb.usps.com/label-manager/new-label/quick?veeqoKey=${dataKey}`;
+            console.log('🔍 Background: USPS URL with data key:', uspsUrl);
+            
+            chrome.tabs.create({
+                url: uspsUrl,
+                active: true
+            }, (tab) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error opening USPS tab:', chrome.runtime.lastError);
+                    sendResponse({ 
+                        success: false, 
+                        error: chrome.runtime.lastError.message 
+                    });
+                } else {
+                    console.log('USPS tab opened successfully:', tab.id);
+                    sendResponse({ 
+                        success: true, 
+                        tabId: tab.id 
+                    });
+                }
             });
-        } else {
-            console.log('USPS tab opened successfully:', tab.id);
-            sendResponse({ 
-                success: true, 
-                tabId: tab.id 
-            });
-        }
-    });
+        });
+    } else {
+        // No order data, open tab normally
+        chrome.tabs.create({
+            url: 'https://cnsb.usps.com/label-manager/new-label/quick',
+            active: true
+        }, (tab) => {
+            if (chrome.runtime.lastError) {
+                console.error('Error opening USPS tab:', chrome.runtime.lastError);
+                sendResponse({ 
+                    success: false, 
+                    error: chrome.runtime.lastError.message 
+                });
+            } else {
+                console.log('USPS tab opened successfully:', tab.id);
+                sendResponse({ 
+                    success: true, 
+                    tabId: tab.id 
+                });
+            }
+        });
+    }
 }
 
 /**
@@ -178,13 +212,14 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
         // Try to use API proxy first (if on Veeqo page)
         console.log('🔍 Background: Trying API proxy first...');
         const proxyResult = await tryApiProxy('fetchOrders', apiKey, params);
-        if (proxyResult) {
+        if (proxyResult && proxyResult.success) {
             console.log('✅ Background: Fetch orders via proxy successful:', proxyResult);
             sendResponse(proxyResult);
             return;
         }
         
-        console.log('🔍 Background: API proxy failed, trying direct API call...');
+        console.log('🔍 Background: API proxy failed or returned error:', proxyResult);
+        console.log('🔍 Background: Trying direct API call...');
         
         // Fallback to direct API call
         const defaultParams = {
@@ -201,55 +236,74 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
         console.log('🔍 Background: API URL:', apiUrl);
         console.log('🔍 Background: Query params:', queryParams.toString());
         
-        const response = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-                'x-api-key': apiKey,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            mode: 'cors'
-        });
-        
-        console.log('🔍 Background: Response status:', response.status);
-        console.log('🔍 Background: Response ok:', response.ok);
-        console.log('🔍 Background: Response headers:', Object.fromEntries(response.headers.entries()));
-        
-        if (response.ok) {
-            const data = await response.json();
-            console.log('✅ Background: API response successful');
-            console.log('🔍 Background: Response data type:', typeof data);
-            console.log('🔍 Background: Response data:', data);
-            console.log('🔍 Background: Response data keys:', Object.keys(data || {}));
-            console.log('🔍 Background: Orders array:', data.orders);
-            console.log('🔍 Background: Orders count:', data.orders ? data.orders.length : 0);
-            
-            // Log the exact structure to help debug
-            if (Array.isArray(data)) {
-                console.log('✅ Background: Data is direct array (Veeqo API format)');
-            } else if (data.orders) {
-                console.log('✅ Background: Found orders in data.orders');
-            } else if (data.results) {
-                console.log('✅ Background: Found orders in data.results');
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                mode: 'cors'
+            });
+
+            console.log('🔍 Background: Response status:', response.status);
+            console.log('🔍 Background: Response ok:', response.ok);
+            console.log('🔍 Background: Response headers:', Object.fromEntries(response.headers.entries()));
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ Background: API response successful');
+                console.log('🔍 Background: Response data type:', typeof data);
+                console.log('🔍 Background: Response data:', data);
+                console.log('🔍 Background: Response data keys:', Object.keys(data || {}));
+                console.log('🔍 Background: Orders array:', data.orders);
+                console.log('🔍 Background: Orders count:', data.orders ? data.orders.length : 0);
+                
+                // Log the exact structure to help debug
+                if (Array.isArray(data)) {
+                    console.log('✅ Background: Data is direct array (Veeqo API format)');
+                } else if (data.orders) {
+                    console.log('✅ Background: Found orders in data.orders');
+                } else if (data.results) {
+                    console.log('✅ Background: Found orders in data.results');
+                } else {
+                    console.log('❌ Background: No orders found in expected locations');
+                    console.log('🔍 Background: Available keys:', Object.keys(data || {}));
+                }
+                
+                sendResponse({ 
+                    success: true, 
+                    data: data 
+                });
             } else {
-                console.log('❌ Background: No orders found in expected locations');
-                console.log('🔍 Background: Available keys:', Object.keys(data || {}));
+                const errorText = await response.text();
+                console.error('❌ Background: API request failed');
+                console.error('❌ Background: Status:', response.status);
+                console.error('❌ Background: Error text:', errorText);
+
+                sendResponse({
+                    success: false,
+                    error: `API request failed with status: ${response.status} - ${errorText}`
+                });
             }
+        } catch (fetchError) {
+            console.error('❌ Background: Fetch error:', fetchError);
+            console.error('❌ Background: Fetch error type:', fetchError.name);
+            console.error('❌ Background: Fetch error message:', fetchError.message);
             
-            sendResponse({ 
-                success: true, 
-                data: data 
-            });
-        } else {
-            const errorText = await response.text();
-            console.error('❌ Background: API request failed');
-            console.error('❌ Background: Status:', response.status);
-            console.error('❌ Background: Error text:', errorText);
-            
-            sendResponse({ 
-                success: false, 
-                error: `API request failed with status: ${response.status} - ${errorText}` 
-            });
+            // Check if it's a CORS error
+            if (fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+                sendResponse({
+                    success: false,
+                    error: 'CORS error: Failed to fetch. Please ensure you are on a Veeqo page for the API proxy to work.'
+                });
+            } else {
+                sendResponse({
+                    success: false,
+                    error: `Network error: ${fetchError.message}`
+                });
+            }
         }
     } catch (error) {
         console.error('❌ Background: Error in handleFetchVeeqoOrders:', error);
@@ -369,12 +423,12 @@ async function tryApiProxy(action, apiKey, params = {}) {
         // Find Veeqo tab
         const tabs = await chrome.tabs.query({ url: '*://app.veeqo.com/*' });
         if (tabs.length === 0) {
-            console.log('No Veeqo tabs found for API proxy');
+            console.log('🔍 Background: No Veeqo tabs found for API proxy');
             return null;
         }
         
         const tab = tabs[0];
-        console.log('Using API proxy on tab:', tab.id);
+        console.log('🔍 Background: Using API proxy on tab:', tab.id);
         
         // Send message to content script and wait for response
         const response = await chrome.tabs.sendMessage(tab.id, {
@@ -384,11 +438,19 @@ async function tryApiProxy(action, apiKey, params = {}) {
             params: params
         });
         
-        console.log('API proxy response:', response);
-        return response?.result || null;
+        console.log('🔍 Background: API proxy response:', response);
+        
+        if (response && response.result) {
+            return response.result;
+        } else {
+            console.log('🔍 Background: API proxy returned no result or error:', response);
+            return null;
+        }
         
     } catch (error) {
-        console.log('API proxy error:', error);
+        console.log('🔍 Background: API proxy error:', error);
+        console.log('🔍 Background: API proxy error type:', error.name);
+        console.log('🔍 Background: API proxy error message:', error.message);
         return null;
     }
 }

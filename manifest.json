@@ -10,7 +10,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://api.veeqo.com/*"
+    "https://api.veeqo.com/*",
+    "https://cnsb.usps.com/*"
   ],
       "content_scripts": [
         {

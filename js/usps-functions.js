@@ -40,6 +40,8 @@ function goToUSPS(orderData = null) {
         if (orderData) {
             sessionStorage.setItem('veeqoOrderData', JSON.stringify(orderData));
             console.log('Order data stored for USPS auto-fill:', orderData);
+        } else {
+            console.log('No order data provided to goToUSPS function');
         }
         
         // Send message to background script to open USPS tab

@@ -52,8 +52,8 @@ function showSimpleNotification(message) {
         position: fixed;
         top: 20px;
         right: 20px;
-        background: #ffc107;
-        color: #000;
+        background: #28a745;
+        color: #fff;
         padding: 15px 20px;
         border-radius: 8px;
         z-index: 10000;
@@ -62,12 +62,12 @@ function showSimpleNotification(message) {
         font-weight: 500;
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         max-width: 400px;
-        border: 2px solid #e0a800;
+        border: 2px solid #1e7e34;
     `;
     
     notification.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-            <span style="font-size: 18px;">⚠️</span>
+            <span style="font-size: 18px;">✅</span>
             <span>${message}</span>
             <button onclick="this.parentElement.parentElement.remove()" 
                     style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; margin-left: 10px;">
@@ -369,10 +369,13 @@ function extractQuantityToShipFromRow(row) {
  */
 function createUSPSButtonWithOrderNumber(orderNumber) {
     const button = document.createElement('button');
-    button.className = 'usps-label-button';
+    button.className = 'usps-label-button usps-button-hidden';
     button.textContent = 'USPS';
     button.id = orderNumber || 'unknown-order';
     button.title = orderNumber ? `Order: ${orderNumber}` : 'Order number not found';
+    
+    // Initially hide the button until data is loaded
+    button.style.display = 'none';
     
     // Add click event listener
     button.addEventListener('click', function() {
@@ -388,14 +391,17 @@ function createUSPSButtonWithOrderNumber(orderNumber) {
  * @param {string} orderNumber - The order number
  */
 function goToUSPSWithOrderNumber(orderNumber) {
+    console.log('🔍 goToUSPSWithOrderNumber - Called with order number:', orderNumber);
+    
     // Check if we have stored order data for this order number
     const storedOrderData = getStoredOrderData(orderNumber);
     
     if (storedOrderData) {
-        console.log(`Using stored order data for ${orderNumber}:`, storedOrderData);
+        console.log(`✅ Using stored order data for ${orderNumber}:`, storedOrderData);
         goToUSPS(storedOrderData);
     } else {
-        console.log(`No stored order data for ${orderNumber}, opening USPS without auto-fill`);
+        console.log(`❌ No stored order data for ${orderNumber}, opening USPS without auto-fill`);
+        console.log('🔍 Make sure you have clicked "Fill Order Data" button first!');
         goToUSPS(null);
     }
 }
@@ -408,14 +414,50 @@ function goToUSPSWithOrderNumber(orderNumber) {
 function getStoredOrderData(orderNumber) {
     try {
         const storedData = localStorage.getItem('veeqoOrderData');
+        console.log('🔍 getStoredOrderData - Looking for order:', orderNumber);
+        console.log('🔍 getStoredOrderData - Raw stored data:', storedData);
+        
         if (storedData) {
             const allOrderData = JSON.parse(storedData);
-            return allOrderData[orderNumber] || null;
+            console.log('🔍 getStoredOrderData - Parsed order data:', allOrderData);
+            console.log('🔍 getStoredOrderData - Available order numbers:', Object.keys(allOrderData));
+            console.log('🔍 getStoredOrderData - Looking for key:', orderNumber);
+            
+            const result = allOrderData[orderNumber] || null;
+            console.log('🔍 getStoredOrderData - Result:', result);
+            return result;
+        } else {
+            console.log('🔍 getStoredOrderData - No stored data found');
         }
     } catch (error) {
         console.error('Error retrieving stored order data:', error);
     }
     return null;
+}
+
+/**
+ * Show all USPS buttons after order data is loaded
+ */
+function showAllUSPSButtons() {
+    console.log('🔍 Showing all USPS buttons...');
+    
+    const uspsButtons = document.querySelectorAll('.usps-label-button');
+    let buttonsShown = 0;
+    
+    uspsButtons.forEach(button => {
+        if (button.style.display === 'none') {
+            button.style.display = 'inline-block';
+            button.classList.remove('usps-button-hidden');
+            buttonsShown++;
+        }
+    });
+    
+    console.log(`✅ Made ${buttonsShown} USPS buttons visible`);
+    
+    // Show a notification to the user
+    if (buttonsShown > 0) {
+        showSimpleNotification(`✅ ${buttonsShown} USPS buttons are now ready! Click any USPS button to auto-fill shipping labels.`);
+    }
 }
 
 /**
@@ -519,6 +561,13 @@ async function handleFillOrderDataClick() {
         button.disabled = true;
         button.style.backgroundColor = '#6c757d';
         
+        // Add progress indicator
+        let progressCounter = 0;
+        const progressInterval = setInterval(() => {
+            progressCounter++;
+            button.textContent = `Loading${'.'.repeat(progressCounter % 4)}`;
+        }, 500);
+        
         // Get all order numbers from the current page
         const orderNumbers = getAllOrderNumbersFromPage();
         console.log(`Found ${orderNumbers.length} order numbers:`, orderNumbers);
@@ -539,8 +588,11 @@ async function handleFillOrderDataClick() {
         localStorage.setItem('veeqoOrderData', JSON.stringify(orderDataMap));
         console.log('Order data stored in localStorage');
         
-        // Show success message
-        alert(`Successfully fetched data for ${Object.keys(orderDataMap).length} orders`);
+        // Clear progress interval
+        clearInterval(progressInterval);
+        
+        // Show all USPS buttons now that data is loaded
+        showAllUSPSButtons();
         
         // Restore button state
         button.textContent = originalText;
@@ -549,6 +601,10 @@ async function handleFillOrderDataClick() {
         
     } catch (error) {
         console.error('Error handling Fill Order Data click:', error);
+        
+        // Clear progress interval
+        clearInterval(progressInterval);
+        
         alert('Error fetching order data: ' + error.message);
         
         // Restore button state
@@ -655,8 +711,8 @@ async function fetchAllOrderData(orderNumbers) {
         
         console.log(`Fetching all orders from API...`);
         
-        // Fetch all orders with awaiting_fulfillment status
-        const allOrdersResponse = await chrome.runtime.sendMessage({
+        // Add timeout to the API call
+        const apiCallPromise = chrome.runtime.sendMessage({
             action: 'fetchVeeqoOrders',
             apiKey: apiKey,
             params: {
@@ -664,6 +720,13 @@ async function fetchAllOrderData(orderNumbers) {
                 status: 'awaiting_fulfillment'
             }
         });
+        
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('API call timed out after 30 seconds')), 30000);
+        });
+        
+        // Race between API call and timeout
+        const allOrdersResponse = await Promise.race([apiCallPromise, timeoutPromise]);
         
         // Log the complete API response for debugging
         console.log('🔍 Complete API Response:', allOrdersResponse);
@@ -760,26 +823,41 @@ async function fetchAllOrderData(orderNumbers) {
                         ? `${quantityToShip} x ${skuCodes.join(', ')}`
                         : quantityToShip;
                     
-                    // Extract the required data based on actual Veeqo API structure
-                    const extractedData = {
-                        deliver_to: apiOrder.delivery_method?.name || null,
-                        sku_codes: skuCodes,
-                        allocation_package: apiOrder.allocation_package || null,
-                        line_items: apiOrder.line_items || [],
-                        shipping_addresses: apiOrder.deliver_to || null,
-                        customer: apiOrder.customer || null,
-                        sales_record_number: apiOrder.sales_record_number || orderNumber,
-                        reference_number: formattedReferenceNumber,
-                        id: apiOrder.id,
-                        // Additional useful fields from Veeqo API
-                        number: apiOrder.number || null,
-                        status: apiOrder.status || null,
-                        total_price: apiOrder.total_price || null,
-                        currency_code: apiOrder.currency_code || null,
-                        // HTML table data
-                        veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
-                        quantity_to_ship: quantityToShip
-                    };
+        // Debug: Log the API order structure to see what's available
+        console.log('🔍 API Order structure for', orderNumber, ':', apiOrder);
+        console.log('🔍 API Order keys:', Object.keys(apiOrder));
+        console.log('🔍 Has allocations:', !!apiOrder.allocations);
+        console.log('🔍 Allocations length:', apiOrder.allocations?.length || 0);
+        
+        // Extract allocation_package from allocations array
+        let allocationPackage = null;
+        if (apiOrder.allocations && apiOrder.allocations.length > 0) {
+            allocationPackage = apiOrder.allocations[0].allocation_package;
+            console.log('🔍 Found allocation_package in allocations[0]:', allocationPackage);
+        } else {
+            console.log('🔍 No allocations found or allocations array is empty');
+        }
+        
+        // Extract the required data based on actual Veeqo API structure
+        const extractedData = {
+            deliver_to: apiOrder.delivery_method?.name || null,
+            sku_codes: skuCodes,
+            allocation_package: allocationPackage,
+            line_items: apiOrder.line_items || [],
+            shipping_addresses: apiOrder.deliver_to || null,
+            customer: apiOrder.customer || null,
+            sales_record_number: apiOrder.sales_record_number || orderNumber,
+            reference_number: formattedReferenceNumber,
+            id: apiOrder.id,
+            // Additional useful fields from Veeqo API
+            number: apiOrder.number || null,
+            status: apiOrder.status || null,
+            total_price: apiOrder.total_price || null,
+            currency_code: apiOrder.currency_code || null,
+            // HTML table data
+            veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
+            quantity_to_ship: quantityToShip
+        };
                     
                     orderDataMap[orderNumber] = extractedData;
                     console.log(`✅ Matched data for sales_record_number ${orderNumber}:`, extractedData);
@@ -1061,3 +1139,13 @@ XMLHttpRequest.prototype.open = function(method, url, ...args) {
     }
     return originalXHROpen.apply(this, [method, url, ...args]);
 };
+
+// Add debugging for API proxy messages
+console.log('🔍 Content Script: Listening for API proxy messages...');
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('🔍 Content Script: Received message:', message);
+    if (message.type === 'VEEQO_API_REQUEST') {
+        console.log('🔍 Content Script: API request received:', message);
+    }
+    return false; // Let other listeners handle it
+});
