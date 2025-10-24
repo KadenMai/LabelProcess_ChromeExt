@@ -1111,11 +1111,22 @@ let networkActivityTimeout = null;
 const originalFetch = window.fetch;
 const originalXHROpen = XMLHttpRequest.prototype.open;
 
-// Monitor fetch requests
+// Monitor fetch requests (but don't interfere with API proxy calls)
 window.fetch = function(...args) {
+    // Check if this is a call from our API proxy
+    const stack = new Error().stack;
+    const isFromApiProxy = stack && stack.includes('api-proxy.js');
+    
+    if (isFromApiProxy) {
+        // This is from our API proxy, don't interfere - just call original fetch
+        return originalFetch.apply(this, args);
+    }
+    
     const result = originalFetch.apply(this, args);
+    
+    // Only monitor calls that are NOT from our API proxy
     if (args[0] && args[0].includes && args[0].includes('veeqo.com')) {
-        console.log('Detected Veeqo API call, will check for buttons after response');
+        console.log('Detected Veeqo API call (not from API proxy), will check for buttons after response');
         clearTimeout(networkActivityTimeout);
         networkActivityTimeout = setTimeout(() => {
             const table = document.getElementById('allocations-table');
