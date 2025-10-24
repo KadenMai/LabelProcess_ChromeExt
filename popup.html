@@ -6,10 +6,10 @@
     <title>Veeqo USPS Settings</title>
     <style>
         body {
-            width: 400px;
-            min-height: 300px;
+            width: 450px;
+            min-height: 400px;
             margin: 0;
-            padding: 20px;
+            padding: 0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         }
@@ -17,26 +17,67 @@
         .container {
             background: white;
             border-radius: 12px;
-            padding: 20px;
+            margin: 10px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
         }
         
         .header {
             text-align: center;
-            margin-bottom: 20px;
+            padding: 20px 20px 10px 20px;
+            background: linear-gradient(135deg, #0052a5 0%, #003d7a 100%);
+            color: white;
         }
         
         .header h1 {
             margin: 0;
-            color: #0052a5;
             font-size: 18px;
             font-weight: 600;
         }
         
         .header p {
             margin: 5px 0 0 0;
-            color: #666;
             font-size: 12px;
+            opacity: 0.9;
+        }
+        
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab.active {
+            color: #0052a5;
+            background: white;
+            border-bottom-color: #0052a5;
+        }
+        
+        .tab:hover:not(.active) {
+            background: #e9ecef;
+            color: #333;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        
+        .tab-content.active {
+            display: block;
         }
         
         .form-group {
@@ -51,7 +92,7 @@
             font-size: 13px;
         }
         
-        input[type="text"], input[type="password"] {
+        input[type="text"], input[type="password"], input[type="number"] {
             width: 100%;
             padding: 10px;
             border: 2px solid #e1e5e9;
@@ -61,7 +102,7 @@
             box-sizing: border-box;
         }
         
-        input[type="text"]:focus, input[type="password"]:focus {
+        input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus {
             outline: none;
             border-color: #0052a5;
             box-shadow: 0 0 0 3px rgba(0, 82, 165, 0.1);
@@ -187,41 +228,129 @@
         .status-indicator.disconnected {
             background: #dc3545;
         }
+        
+        .instruction-item {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #0052a5;
+        }
+        
+        .instruction-item h4 {
+            margin: 0 0 8px 0;
+            color: #0052a5;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        
+        .instruction-item p {
+            margin: 0;
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        .setting-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .setting-row label {
+            margin: 0;
+            min-width: 120px;
+            font-size: 13px;
+        }
+        
+        .setting-row input {
+            flex: 1;
+            max-width: 80px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🚀 Veeqo USPS Extension</h1>
-            <p>Configure your Veeqo API settings</p>
+            <p>Configure your Veeqo USPS integration</p>
         </div>
         
-        <form id="settingsForm">
-            <div class="form-group">
-                <label for="apiKey">Veeqo API Key</label>
-                <div class="input-wrapper">
-                    <input type="password" id="apiKey" placeholder="Enter your Veeqo API key">
-                    <button type="button" class="toggle-password" id="togglePasswordBtn">👁️</button>
-                </div>
-                <div class="help-text">
-                    Get your API key from Veeqo Settings → API Keys. This allows the extension to fetch order details.
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <div class="api-status" id="apiStatus" style="display: none;">
-                    <div class="status-indicator"></div>
-                    <span id="apiStatusText">Checking connection...</span>
-                </div>
-            </div>
-            
-            <div class="button-group">
-                <button type="button" class="btn-secondary" id="testConnectionBtn">Test Connection</button>
-                <button type="submit" class="btn-primary">Save Settings</button>
-            </div>
-        </form>
+        <div class="tabs">
+            <button class="tab active" data-tab="settings">Settings</button>
+            <button class="tab" data-tab="instructions">Instructions</button>
+        </div>
         
-        <div class="status" id="statusMessage"></div>
+        <!-- Settings Tab -->
+        <div class="tab-content active" id="settings">
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label for="apiKey">Veeqo API Key</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="apiKey" placeholder="Enter your Veeqo API key">
+                        <button type="button" class="toggle-password" id="togglePasswordBtn">👁️</button>
+                    </div>
+                    <div class="help-text">
+                        Get your API key from Veeqo Settings → API Keys. This allows the extension to fetch order details.
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <div class="setting-row">
+                        <label for="uspsButtonColumn">USPS Button Column:</label>
+                        <input type="number" id="uspsButtonColumn" placeholder="3" min="1" max="20" value="3">
+                    </div>
+                    <div class="help-text">
+                        Column number where the USPS button will be added (default: 3)
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <div class="api-status" id="apiStatus" style="display: none;">
+                        <div class="status-indicator"></div>
+                        <span id="apiStatusText">Checking connection...</span>
+                    </div>
+                </div>
+                
+                <div class="button-group">
+                    <button type="button" class="btn-secondary" id="testConnectionBtn">Test Connection</button>
+                    <button type="submit" class="btn-primary">Save Settings</button>
+                </div>
+            </form>
+            
+            <div class="status" id="statusMessage"></div>
+        </div>
+        
+        <!-- Instructions Tab -->
+        <div class="tab-content" id="instructions">
+            <div class="instruction-item">
+                <h4>📋 How to Use</h4>
+                <p>1. Go to your Veeqo allocations page<br>
+                2. Click "Fill Order Data" to load order information<br>
+                3. Click any "USPS" button to auto-fill shipping labels<br>
+                4. Review and generate your USPS labels</p>
+            </div>
+            
+            <div class="instruction-item">
+                <h4>⚙️ Configuration</h4>
+                <p>• <strong>API Key:</strong> Required for fetching order details from Veeqo<br>
+                • <strong>USPS Button Column:</strong> Choose which column to add the USPS button (default: 3)<br>
+                • <strong>Test Connection:</strong> Verify your API key is working correctly</p>
+            </div>
+            
+            <div class="instruction-item">
+                <h4>🔧 Troubleshooting</h4>
+                <p>• If buttons don't appear, refresh the Veeqo page<br>
+                • If auto-fill doesn't work, check that the USPS page is fully loaded<br>
+                • If API connection fails, verify your API key is correct</p>
+            </div>
+            
+            <div class="instruction-item">
+                <h4>📞 Support</h4>
+                <p>For issues or questions, check the console logs for detailed error messages and troubleshooting information.</p>
+            </div>
+        </div>
     </div>
     
     <script src="js/popup.js"></script>

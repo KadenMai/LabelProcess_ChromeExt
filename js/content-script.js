@@ -36,6 +36,26 @@ async function getApiKey() {
 }
 
 /**
+ * Get stored USPS button column setting from Chrome storage
+ * @returns {Promise<number>} The column number (default: 3)
+ */
+async function getUSPSButtonColumn() {
+    try {
+        // Check if extension context is still valid
+        if (!isExtensionContextValid()) {
+            console.warn('Extension context invalidated, using default column 3');
+            return 3;
+        }
+        
+        const result = await chrome.storage.sync.get(['uspsButtonColumn']);
+        return result.uspsButtonColumn || 3;
+    } catch (error) {
+        console.error('Error getting USPS button column setting:', error);
+        return 3;
+    }
+}
+
+/**
  * Show a simple notification if the main notification system isn't available
  * @param {string} message - Message to display
  */
@@ -180,13 +200,19 @@ function waitForAllocationsTable() {
     });
 }
 
-// Add USPS button to the 3rd column of each row in tbody
+// Add USPS button to the configured column of each row in tbody
 async function addUSPSButtonsToTable(table) {
     const tbody = table.querySelector('tbody');
     if (!tbody) {
         console.log('No tbody found in allocations table');
         return;
     }
+
+    // Get the configured column number
+    const uspsButtonColumn = await getUSPSButtonColumn();
+    const columnIndex = uspsButtonColumn - 1; // Convert to 0-based index
+    
+    console.log(`Using USPS button column: ${uspsButtonColumn} (index: ${columnIndex})`);
 
     const rows = tbody.querySelectorAll('tr');
     console.log(`Found ${rows.length} rows in allocations table`);
@@ -195,22 +221,22 @@ async function addUSPSButtonsToTable(table) {
     let buttonsSkipped = 0;
 
     rows.forEach((row, index) => {
-        // Get the 3rd column (index 2)
+        // Get the configured column
         const cells = row.querySelectorAll('td');
-        if (cells.length >= 3) {
-            const thirdCell = cells[2];
+        if (cells.length >= uspsButtonColumn) {
+            const targetCell = cells[columnIndex];
             
             // Check if USPS button already exists in this cell
-            if (!thirdCell.querySelector('.usps-label-button')) {
+            if (!targetCell.querySelector('.usps-label-button')) {
                 // Create a container for the button if needed
-                let buttonContainer = thirdCell.querySelector('.usps-button-container');
+                let buttonContainer = targetCell.querySelector('.usps-button-container');
                 if (!buttonContainer) {
                     buttonContainer = document.createElement('div');
                     buttonContainer.className = 'usps-button-container';
                     buttonContainer.style.cssText = 'display: flex; justify-content: center; align-items: center; margin: 5px 0;';
                     
                     // Add the button container to the cell
-                    thirdCell.appendChild(buttonContainer);
+                    targetCell.appendChild(buttonContainer);
                 }
                 
                 // Extract order number from the row
@@ -1047,11 +1073,12 @@ function startPeriodicCheck() {
                 const rows = tbody.querySelectorAll('tr');
                 let missingButtons = 0;
                 
-                rows.forEach((row) => {
+                rows.forEach(async (row) => {
                     const cells = row.querySelectorAll('td');
-                    if (cells.length >= 3) {
-                        const thirdCell = cells[2];
-                        if (!thirdCell.querySelector('.usps-label-button')) {
+                    const uspsButtonColumn = await getUSPSButtonColumn();
+                    if (cells.length >= uspsButtonColumn) {
+                        const targetCell = cells[uspsButtonColumn - 1];
+                        if (!targetCell.querySelector('.usps-label-button')) {
                             missingButtons++;
                         }
                     }

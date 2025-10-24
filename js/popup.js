@@ -5,6 +5,7 @@
 
 // DOM elements
 const apiKeyInput = document.getElementById('apiKey');
+const uspsButtonColumnInput = document.getElementById('uspsButtonColumn');
 const settingsForm = document.getElementById('settingsForm');
 const statusMessage = document.getElementById('statusMessage');
 const apiStatus = document.getElementById('apiStatus');
@@ -13,15 +14,20 @@ const apiStatusText = document.getElementById('apiStatusText');
 // Load saved settings when popup opens
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        const result = await chrome.storage.sync.get(['veeqoApiKey']);
+        const result = await chrome.storage.sync.get(['veeqoApiKey', 'uspsButtonColumn']);
         if (result.veeqoApiKey) {
             apiKeyInput.value = result.veeqoApiKey;
             // Check API connection if key exists
             await checkApiConnection();
         }
         
+        if (result.uspsButtonColumn) {
+            uspsButtonColumnInput.value = result.uspsButtonColumn;
+        }
+        
         // Add event listeners
         setupEventListeners();
+        setupTabs();
     } catch (error) {
         console.error('Error loading settings:', error);
         showStatus('Error loading settings', 'error');
@@ -48,6 +54,7 @@ settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     
     const apiKey = apiKeyInput.value.trim();
+    const uspsButtonColumn = parseInt(uspsButtonColumnInput.value) || 3;
     
     if (!apiKey) {
         showStatus('Please enter your Veeqo API key', 'error');
@@ -59,9 +66,17 @@ settingsForm.addEventListener('submit', async (e) => {
         return;
     }
     
+    if (uspsButtonColumn < 1 || uspsButtonColumn > 20) {
+        showStatus('USPS Button Column must be between 1 and 20', 'error');
+        return;
+    }
+    
     try {
-        // Save API key to Chrome storage
-        await chrome.storage.sync.set({ veeqoApiKey: apiKey });
+        // Save settings to Chrome storage
+        await chrome.storage.sync.set({ 
+            veeqoApiKey: apiKey,
+            uspsButtonColumn: uspsButtonColumn
+        });
         
         // Test the connection
         const isValid = await testApiConnection(apiKey);
@@ -194,6 +209,29 @@ function togglePassword() {
         input.type = 'password';
         button.textContent = '👁️';
     }
+}
+
+// Setup tab functionality
+function setupTabs() {
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const targetTab = tab.getAttribute('data-tab');
+            
+            // Remove active class from all tabs and contents
+            tabs.forEach(t => t.classList.remove('active'));
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            // Add active class to clicked tab and corresponding content
+            tab.classList.add('active');
+            const targetContent = document.getElementById(targetTab);
+            if (targetContent) {
+                targetContent.classList.add('active');
+            }
+        });
+    });
 }
 
 // Functions are now properly scoped and don't need to be global
