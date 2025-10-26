@@ -16,7 +16,7 @@
       "content_scripts": [
         {
           "matches": ["*://app.veeqo.com/*"],
-          "js": ["js/error-handler.js", "js/extension-recovery.js", "js/usps-functions.js", "js/veeqo-api.js", "js/api-proxy.js", "js/content-script.js"],
+          "js": ["js/error-handler.js", "js/extension-recovery.js", "js/usps-functions.js", "js/veeqo-api.js", "js/api-proxy.js", "js/print-functions.js", "js/content-script.js"],
           "css": ["css/usps-button.css"],
           "run_at": "document_end"
         },

@@ -6,6 +6,7 @@
 // DOM elements
 const apiKeyInput = document.getElementById('apiKey');
 const uspsButtonColumnInput = document.getElementById('uspsButtonColumn');
+const printNoteColumnInput = document.getElementById('printNoteColumn');
 const settingsForm = document.getElementById('settingsForm');
 const statusMessage = document.getElementById('statusMessage');
 const apiStatus = document.getElementById('apiStatus');
@@ -14,7 +15,7 @@ const apiStatusText = document.getElementById('apiStatusText');
 // Load saved settings when popup opens
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        const result = await chrome.storage.sync.get(['veeqoApiKey', 'uspsButtonColumn']);
+        const result = await chrome.storage.sync.get(['veeqoApiKey', 'uspsButtonColumn', 'printNoteColumn']);
         if (result.veeqoApiKey) {
             apiKeyInput.value = result.veeqoApiKey;
             // Check API connection if key exists
@@ -23,6 +24,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         if (result.uspsButtonColumn) {
             uspsButtonColumnInput.value = result.uspsButtonColumn;
+        }
+        
+        if (result.printNoteColumn) {
+            printNoteColumnInput.value = result.printNoteColumn;
         }
         
         // Add event listeners
@@ -55,6 +60,7 @@ settingsForm.addEventListener('submit', async (e) => {
     
     const apiKey = apiKeyInput.value.trim();
     const uspsButtonColumn = parseInt(uspsButtonColumnInput.value) || 3;
+    const printNoteColumn = parseInt(printNoteColumnInput.value) || 6;
     
     if (!apiKey) {
         showStatus('Please enter your Veeqo API key', 'error');
@@ -71,11 +77,17 @@ settingsForm.addEventListener('submit', async (e) => {
         return;
     }
     
+    if (printNoteColumn < 1 || printNoteColumn > 20) {
+        showStatus('Print Note Column must be between 1 and 20', 'error');
+        return;
+    }
+    
     try {
         // Save settings to Chrome storage
         await chrome.storage.sync.set({ 
             veeqoApiKey: apiKey,
-            uspsButtonColumn: uspsButtonColumn
+            uspsButtonColumn: uspsButtonColumn,
+            printNoteColumn: printNoteColumn
         });
         
         // Test the connection

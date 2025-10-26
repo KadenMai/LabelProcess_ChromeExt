@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Delivery Instructions - Order {{orderId}}</title>
+  <style>
+    @page {
+      size: 4in 6in;
+      margin: 0.25in;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.4;
+      margin: 0;
+      padding: 10px;
+    }
+    .header {
+      font-weight: bold;
+      font-size: 14px;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #000;
+      padding-bottom: 5px;
+    }
+    .field {
+      margin-bottom: 8px;
+    }
+    .label {
+      font-weight: bold;
+      display: inline-block;
+      width: 120px;
+    }
+    .value {
+      display: inline-block;
+    }
+    .instructions {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #000;
+      background-color: #f9f9f9;
+      font-weight: bold;
+    }
+    .footer {
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        border-top: 2px solid #000;
+        padding-top: 5px;
+        text-align: center;
+    }
+    @media print {
+      body { margin: 0; padding: 5px; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>      
+  <div class="header">DELIVERY INSTRUCTIONS</div>
+  
+  <div class="field">
+    <span class="label">Order Number:</span>
+    <span class="value">{{orderId}}</span>
+  </div>
+  
+  <div class="field">
+    <span class="label">Customer Name:</span>
+    <span class="value">{{recipient}}</span>
+  </div>
+
+  <div class="field">
+    <span class="label">Customer Phone:</span>
+    <span class="value">{{buyerPhone}}</span>
+  </div>
+  
+  <div class="field">
+    <span class="label">Item Info:</span>
+    <span class="value">{{quantity}} x {{sku}}</span>
+  </div>
+  
+  <div class="instructions">
+    <div class="label">Delivery Instructions:</div>
+    <div class="value" style="font-size: large;">{{deliveryInstructions}}</div>
+  </div>
+  
+  <div class="no-print" style="margin-top: 20px; text-align: center;">
+    <button onclick="window.print()" style="padding: 10px 20px; font-size: 14px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Print 4x6 Label</button>
+    <button onclick="window.close()" style="padding: 10px 20px; font-size: 14px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px;">Close</button>
+  </div>
+
+  <div class="footer">
+    <div class="value">Thanks for shopping with GocBepViet</div><br>
+    <div class="value">https://gocbepviet.com/</div>
+  </div>
+</body>
+</html>
