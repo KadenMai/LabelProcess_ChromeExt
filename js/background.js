@@ -127,15 +127,7 @@ async function handleTestVeeqoApi(request, sender, sendResponse) {
             return;
         }
         
-        // Try to use API proxy first (if on Veeqo page)
-        const proxyResult = await tryApiProxy('testApi', apiKey);
-        if (proxyResult) {
-            console.log('API test via proxy:', proxyResult);
-            sendResponse(proxyResult);
-            return;
-        }
-        
-        // Fallback to direct API call
+        // Use direct API call (same as Fill Order Data)
         const url = 'https://api.veeqo.com/orders?page_size=1';
         console.log('Making direct request to:', url);
         
@@ -181,10 +173,21 @@ async function handleTestVeeqoApi(request, sender, sendResponse) {
         }
     } catch (error) {
         console.error('Error testing Veeqo API:', error);
-        sendResponse({ 
-            success: false, 
-            error: error.message 
-        });
+        console.error('Error type:', error.name);
+        console.error('Error message:', error.message);
+        
+        // Check if it's a CORS error
+        if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+            sendResponse({
+                success: false,
+                error: 'CORS error: Failed to fetch. Please ensure you are on a Veeqo page for the API proxy to work.'
+            });
+        } else {
+            sendResponse({ 
+                success: false, 
+                error: error.message 
+            });
+        }
     }
 }
 
