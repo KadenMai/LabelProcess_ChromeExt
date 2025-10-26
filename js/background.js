@@ -135,23 +135,50 @@ async function handleTestVeeqoApi(request, sender, sendResponse) {
             return;
         }
         
-        // If no Veeqo tab is open, provide helpful error message
-        const tabs = await chrome.tabs.query({ url: '*://app.veeqo.com/*' });
-        if (tabs.length === 0) {
+        // Fallback to direct API call
+        const url = 'https://api.veeqo.com/orders?page_size=1';
+        console.log('Making direct request to:', url);
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            mode: 'cors'
+        });
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('API test successful, got data:', data);
+            sendResponse({ 
+                success: true, 
+                message: 'API connection successful' 
+            });
+        } else if (response.status === 401) {
+            console.log('API test failed: 401 Unauthorized');
             sendResponse({ 
                 success: false, 
-                error: 'Please open a Veeqo page (app.veeqo.com) in another tab to test the API connection. The extension needs to make API calls from the Veeqo domain to bypass CORS restrictions.' 
+                error: 'Invalid API key' 
             });
-            return;
+        } else if (response.status === 403) {
+            console.log('API test failed: 403 Forbidden');
+            sendResponse({ 
+                success: false, 
+                error: 'API key does not have required permissions' 
+            });
+        } else {
+            const errorText = await response.text();
+            console.log('API test failed:', response.status, errorText);
+            sendResponse({ 
+                success: false, 
+                error: `API request failed with status: ${response.status} - ${errorText}` 
+            });
         }
-        
-        // If we reach here, the API proxy should have worked
-        // If it didn't, there might be an issue with the API proxy
-        console.log('API proxy failed, but Veeqo tab exists. This might be a proxy communication issue.');
-        sendResponse({ 
-            success: false, 
-            error: 'API proxy failed. Please ensure the Veeqo page is fully loaded and try again.' 
-        });
     } catch (error) {
         console.error('Error testing Veeqo API:', error);
         sendResponse({ 
@@ -191,23 +218,93 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
             return;
         }
         
-        // If no Veeqo tab is open, provide helpful error message
-        const tabs = await chrome.tabs.query({ url: '*://app.veeqo.com/*' });
-        if (tabs.length === 0) {
-            sendResponse({ 
-                success: false, 
-                error: 'Please open a Veeqo page (app.veeqo.com) in another tab to fetch order data. The extension needs to make API calls from the Veeqo domain to bypass CORS restrictions.' 
-            });
-            return;
-        }
+        console.log('🔍 Background: API proxy failed or returned error:', proxyResult);
+        console.log('🔍 Background: Trying direct API call...');
         
-        // If we reach here, the API proxy should have worked
-        // If it didn't, there might be an issue with the API proxy
-        console.log('🔍 Background: API proxy failed, but Veeqo tab exists. This might be a proxy communication issue.');
-        sendResponse({ 
-            success: false, 
-            error: 'API proxy failed. Please ensure the Veeqo page is fully loaded and try again.' 
+        // Fallback to direct API call
+        const defaultParams = {
+            page_size: 100,
+            status: 'awaiting_fulfillment'
+        };
+        
+        const queryParams = new URLSearchParams({
+            ...defaultParams,
+            ...params
         });
+        
+        const apiUrl = `https://api.veeqo.com/orders?${queryParams}`;
+        console.log('🔍 Background: API URL:', apiUrl);
+        console.log('🔍 Background: Query params:', queryParams.toString());
+        
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                mode: 'cors'
+            });
+
+            console.log('🔍 Background: Response status:', response.status);
+            console.log('🔍 Background: Response ok:', response.ok);
+            console.log('🔍 Background: Response headers:', Object.fromEntries(response.headers.entries()));
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ Background: API response successful');
+                console.log('🔍 Background: Response data type:', typeof data);
+                console.log('🔍 Background: Response data:', data);
+                console.log('🔍 Background: Response data keys:', Object.keys(data || {}));
+                console.log('🔍 Background: Orders array:', data.orders);
+                console.log('🔍 Background: Orders count:', data.orders ? data.orders.length : 0);
+                
+                // Log the exact structure to help debug
+                if (Array.isArray(data)) {
+                    console.log('✅ Background: Data is direct array (Veeqo API format)');
+                } else if (data.orders) {
+                    console.log('✅ Background: Found orders in data.orders');
+                } else if (data.results) {
+                    console.log('✅ Background: Found orders in data.results');
+                } else {
+                    console.log('❌ Background: No orders found in expected locations');
+                    console.log('🔍 Background: Available keys:', Object.keys(data || {}));
+                }
+                
+                sendResponse({ 
+                    success: true, 
+                    data: data 
+                });
+            } else {
+                const errorText = await response.text();
+                console.error('❌ Background: API request failed');
+                console.error('❌ Background: Status:', response.status);
+                console.error('❌ Background: Error text:', errorText);
+
+                sendResponse({
+                    success: false,
+                    error: `API request failed with status: ${response.status} - ${errorText}`
+                });
+            }
+        } catch (fetchError) {
+            console.error('❌ Background: Fetch error:', fetchError);
+            console.error('❌ Background: Fetch error type:', fetchError.name);
+            console.error('❌ Background: Fetch error message:', fetchError.message);
+            
+            // Check if it's a CORS error
+            if (fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+                sendResponse({
+                    success: false,
+                    error: 'CORS error: Failed to fetch. Please ensure you are on a Veeqo page for the API proxy to work.'
+                });
+            } else {
+                sendResponse({
+                    success: false,
+                    error: `Network error: ${fetchError.message}`
+                });
+            }
+        }
     } catch (error) {
         console.error('❌ Background: Error in handleFetchVeeqoOrders:', error);
         console.error('❌ Background: Error stack:', error.stack);
@@ -244,23 +341,33 @@ async function handleFetchOrderById(request, sender, sendResponse) {
             return;
         }
         
-        // If no Veeqo tab is open, provide helpful error message
-        const tabs = await chrome.tabs.query({ url: '*://app.veeqo.com/*' });
-        if (tabs.length === 0) {
+        // Fallback to direct API call
+        const url = `https://api.veeqo.com/orders/${orderId}`;
+        console.log('Making direct request to:', url);
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            mode: 'cors'
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Order fetch successful:', data);
+            sendResponse({ success: true, data: data });
+        } else {
+            const errorText = await response.text();
             sendResponse({ 
                 success: false, 
-                error: 'Please open a Veeqo page (app.veeqo.com) in another tab to fetch order data. The extension needs to make API calls from the Veeqo domain to bypass CORS restrictions.' 
+                error: `Order fetch failed with status: ${response.status} - ${errorText}` 
             });
-            return;
         }
-        
-        // If we reach here, the API proxy should have worked
-        // If it didn't, there might be an issue with the API proxy
-        console.log('API proxy failed, but Veeqo tab exists. This might be a proxy communication issue.');
-        sendResponse({ 
-            success: false, 
-            error: 'API proxy failed. Please ensure the Veeqo page is fully loaded and try again.' 
-        });
         
     } catch (error) {
         console.error('Error fetching order by ID:', error);
@@ -333,16 +440,10 @@ async function tryApiProxy(action, apiKey, params = {}) {
         
         console.log('🔍 Background: API proxy response:', response);
         
-        // Check if the response has the expected structure
-        if (response && response.type === 'VEEQO_API_RESPONSE' && response.result) {
-            console.log('🔍 Background: API proxy result:', response.result);
+        if (response && response.result) {
             return response.result;
-        } else if (response && response.success !== undefined) {
-            // Direct response format
-            console.log('🔍 Background: Direct API proxy response:', response);
-            return response;
         } else {
-            console.log('🔍 Background: Unexpected API proxy response format:', response);
+            console.log('🔍 Background: API proxy returned no result or error:', response);
             return null;
         }
         
