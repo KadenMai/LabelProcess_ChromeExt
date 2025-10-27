@@ -713,19 +713,23 @@ function addFillOrderDataButton() {
     }
 }
 function addButtonNearElement(targetElement) {
-    // Check if button already exists
+    // Check if buttons already exist
     if (document.getElementById('fill-order-data-btn')) {
         console.log('Fill Order Data button already exists');
         return;
     }
     
-    // Create the button
+    // Create a container for both buttons
+    const buttonContainer = document.createElement('div');
+    buttonContainer.id = 'gbv-button-container';
+    buttonContainer.style.cssText = 'display: inline-flex; gap: 10px; margin-left: 10px;';
+    
+    // Create the Fill Order Data button
     const fillOrderDataButton = document.createElement('button');
     fillOrderDataButton.id = 'fill-order-data-btn';
     fillOrderDataButton.textContent = 'Fill Order Data';
     fillOrderDataButton.className = 'btn btn-secondary';
     fillOrderDataButton.style.cssText = `
-        margin-left: 10px;
         background: #28a745;
         color: white;
         border: 1px solid #28a745;
@@ -736,7 +740,23 @@ function addButtonNearElement(targetElement) {
         transition: background-color 0.2s;
     `;
     
-    // Add hover effect
+    // Create the Load AMZ Note button
+    const loadAmzNoteButton = document.createElement('button');
+    loadAmzNoteButton.id = 'load-amz-note-btn';
+    loadAmzNoteButton.textContent = 'Load AMZ Note';
+    loadAmzNoteButton.className = 'btn btn-info';
+    loadAmzNoteButton.style.cssText = `
+        background: #17a2b8;
+        color: white;
+        border: 1px solid #17a2b8;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    `;
+    
+    // Add hover effects for Fill Order Data button
     fillOrderDataButton.addEventListener('mouseenter', () => {
         fillOrderDataButton.style.backgroundColor = '#218838';
     });
@@ -745,13 +765,27 @@ function addButtonNearElement(targetElement) {
         fillOrderDataButton.style.backgroundColor = '#28a745';
     });
     
-    // Add click event listener
-    fillOrderDataButton.addEventListener('click', handleFillOrderDataClick);
+    // Add hover effects for Load AMZ Note button
+    loadAmzNoteButton.addEventListener('mouseenter', () => {
+        loadAmzNoteButton.style.backgroundColor = '#138496';
+    });
     
-    // Insert the button after the target element
+    loadAmzNoteButton.addEventListener('mouseleave', () => {
+        loadAmzNoteButton.style.backgroundColor = '#17a2b8';
+    });
+    
+    // Add click event listeners
+    fillOrderDataButton.addEventListener('click', handleFillOrderDataClick);
+    loadAmzNoteButton.addEventListener('click', handleLoadAmzNoteClick);
+    
+    // Add buttons to container
+    buttonContainer.appendChild(fillOrderDataButton);
+    buttonContainer.appendChild(loadAmzNoteButton);
+    
+    // Insert the button container after the target element
     if (targetElement.parentNode) {
-        targetElement.parentNode.insertBefore(fillOrderDataButton, targetElement.nextSibling);
-        console.log('Fill Order Data button added successfully');
+        targetElement.parentNode.insertBefore(buttonContainer, targetElement.nextSibling);
+        console.log('Fill Order Data and Load AMZ Note buttons added successfully');
     } else {
         console.error('Could not find parent node for bulk actions button');
     }
@@ -828,6 +862,280 @@ async function handleFillOrderDataClick() {
         button.disabled = false;
         button.style.backgroundColor = '#28a745';
     }
+}
+
+/**
+ * Handle click on Load AMZ Note button
+ */
+async function handleLoadAmzNoteClick() {
+    try {
+        console.log('Load AMZ Note button clicked');
+        
+        // Disable button and show loading state
+        const button = document.getElementById('load-amz-note-btn');
+        const originalText = button.textContent;
+        button.textContent = 'Loading...';
+        button.disabled = true;
+        button.style.backgroundColor = '#6c757d';
+        
+        // Load and process Amazon order notes
+        await loadAmazonOrderNote();
+        
+        // Restore button state
+        button.textContent = originalText;
+        button.disabled = false;
+        button.style.backgroundColor = '#17a2b8';
+        
+    } catch (error) {
+        console.error('Error handling Load AMZ Note click:', error);
+        alert('Error loading Amazon order notes: ' + error.message);
+        
+        // Restore button state
+        const button = document.getElementById('load-amz-note-btn');
+        button.textContent = 'Load AMZ Note';
+        button.disabled = false;
+        button.style.backgroundColor = '#17a2b8';
+    }
+}
+
+/**
+ * Load Amazon order notes from text file and update Veeqo orders
+ */
+async function loadAmazonOrderNote() {
+    try {
+        console.log('🔄 Starting Amazon order note loading process...');
+        
+        // Create file input element
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.txt';
+        fileInput.style.display = 'none';
+        
+        // Add to DOM temporarily
+        document.body.appendChild(fileInput);
+        
+        // Create promise to handle file selection
+        const filePromise = new Promise((resolve, reject) => {
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    resolve(file);
+                } else {
+                    reject(new Error('No file selected'));
+                }
+            });
+            
+            fileInput.addEventListener('cancel', () => {
+                reject(new Error('File selection cancelled'));
+            });
+        });
+        
+        // Trigger file selection
+        fileInput.click();
+        
+        // Wait for file selection
+        const file = await filePromise;
+        
+        // Remove file input from DOM
+        document.body.removeChild(fileInput);
+        
+        console.log(`📁 Selected file: ${file.name}`);
+        
+        // Read file content
+        const fileContent = await readFileContent(file);
+        console.log('📄 File content loaded, length:', fileContent.length);
+        
+        // Parse Amazon orders
+        const amazonOrders = parseAmazonOrders(fileContent);
+        console.log(`📊 Parsed ${amazonOrders.length} Amazon orders`);
+        
+        // Check if there are any orders with delivery instructions
+        const ordersWithInstructions = amazonOrders.filter(order => 
+            order.deliveryInstructions && order.deliveryInstructions.trim() !== ''
+        );
+        console.log(`📝 Found ${ordersWithInstructions.length} orders with delivery instructions`);
+        
+        if (ordersWithInstructions.length === 0) {
+            alert('No orders with delivery instructions found in the file.');
+            return;
+        }
+        
+        // Get API key
+        const apiKey = await getApiKey();
+        if (!apiKey) {
+            throw new Error('Veeqo API key not configured. Please set it in extension settings.');
+        }
+        
+        // Get all Veeqo orders to map Amazon order IDs
+        console.log('🔄 Fetching Veeqo orders for mapping...');
+        const allOrdersResponse = await chrome.runtime.sendMessage({
+            action: 'fetchVeeqoOrders',
+            apiKey: apiKey,
+            params: {
+                page_size: 100,
+                status: 'awaiting_fulfillment'
+            }
+        });
+        
+        if (!allOrdersResponse || !allOrdersResponse.success) {
+            throw new Error('Failed to fetch Veeqo orders: ' + (allOrdersResponse?.error || 'Unknown error'));
+        }
+        
+        const veeqoOrders = allOrdersResponse.data || [];
+        console.log(`📋 Fetched ${veeqoOrders.length} Veeqo orders`);
+        
+        // Create mapping from Amazon order ID to Veeqo order
+        const orderMapping = createOrderMapping(amazonOrders, veeqoOrders);
+        console.log(`🔗 Created mapping for ${Object.keys(orderMapping).length} orders`);
+        
+        // Update Veeqo orders with customer notes
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (const amazonOrderId of Object.keys(orderMapping)) {
+            try {
+                const veeqoOrder = orderMapping[amazonOrderId];
+                const amazonOrder = amazonOrders.find(order => order.orderId === amazonOrderId);
+                
+                if (veeqoOrder && amazonOrder && amazonOrder.deliveryInstructions) {
+                    console.log(`🔄 Updating order ${veeqoOrder.id} with delivery instructions: "${amazonOrder.deliveryInstructions}"`);
+                    
+                    const updateResponse = await chrome.runtime.sendMessage({
+                        action: 'updateVeeqoOrder',
+                        apiKey: apiKey,
+                        orderId: veeqoOrder.id,
+                        customerNote: amazonOrder.deliveryInstructions
+                    });
+                    
+                    if (updateResponse && updateResponse.success) {
+                        console.log(`✅ Successfully updated order ${veeqoOrder.id}`);
+                        successCount++;
+                    } else {
+                        console.error(`❌ Failed to update order ${veeqoOrder.id}:`, updateResponse?.error);
+                        errorCount++;
+                    }
+                }
+            } catch (error) {
+                console.error(`❌ Error updating order ${amazonOrderId}:`, error);
+                errorCount++;
+            }
+        }
+        
+        console.log(`📊 Update summary: ${successCount} successful, ${errorCount} errors`);
+        
+        // Show completion message
+        alert(`Amazon order notes loaded successfully!\n\nUpdated: ${successCount} orders\nErrors: ${errorCount} orders`);
+        
+        // Reload the page data by calling Fill Order Data
+        console.log('🔄 Reloading page data...');
+        await handleFillOrderDataClick();
+        
+    } catch (error) {
+        console.error('❌ Error loading Amazon order notes:', error);
+        throw error;
+    }
+}
+
+/**
+ * Read file content as text
+ * @param {File} file - The file to read
+ * @returns {Promise<string>} File content as string
+ */
+function readFileContent(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target.result);
+        reader.onerror = (error) => reject(error);
+        reader.readAsText(file);
+    });
+}
+
+/**
+ * Parse Amazon orders from file content
+ * @param {string} content - File content
+ * @returns {Array<Object>} Array of parsed Amazon orders
+ */
+function parseAmazonOrders(content) {
+    const lines = content.split('\n');
+    if (lines.length < 2) {
+        throw new Error('Invalid file format: No header or data rows found');
+    }
+    
+    // Parse header to get column indices
+    const header = lines[0].split('\t');
+    const orderIdIndex = header.indexOf('order-id');
+    const deliveryInstructionsIndex = header.indexOf('delivery-Instructions');
+    
+    if (orderIdIndex === -1) {
+        throw new Error('Invalid file format: order-id column not found');
+    }
+    
+    if (deliveryInstructionsIndex === -1) {
+        throw new Error('Invalid file format: delivery-Instructions column not found');
+    }
+    
+    console.log(`📋 Header columns: order-id=${orderIdIndex}, delivery-Instructions=${deliveryInstructionsIndex}`);
+    
+    // Parse data rows
+    const orders = [];
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line === '') continue;
+        
+        const columns = line.split('\t');
+        if (columns.length > orderIdIndex) {
+            const orderId = columns[orderIdIndex]?.trim();
+            const deliveryInstructions = columns[deliveryInstructionsIndex]?.trim();
+            
+            if (orderId) {
+                orders.push({
+                    orderId: orderId,
+                    deliveryInstructions: deliveryInstructions || ''
+                });
+            }
+        }
+    }
+    
+    return orders;
+}
+
+/**
+ * Create mapping from Amazon order IDs to Veeqo orders (only for orders with delivery instructions)
+ * @param {Array<Object>} amazonOrders - Amazon orders
+ * @param {Array<Object>} veeqoOrders - Veeqo orders
+ * @returns {Object} Mapping object
+ */
+function createOrderMapping(amazonOrders, veeqoOrders) {
+    const mapping = {};
+    
+    // Create a map of Veeqo orders by their number (which should match Amazon order ID)
+    const veeqoOrderMap = {};
+    veeqoOrders.forEach(order => {
+        if (order.number) {
+            veeqoOrderMap[order.number] = order;
+        }
+    });
+    
+    // Only map Amazon orders that have delivery instructions
+    const ordersWithInstructions = amazonOrders.filter(order => 
+        order.deliveryInstructions && order.deliveryInstructions.trim() !== ''
+    );
+    
+    console.log(`📝 Processing ${ordersWithInstructions.length} orders with delivery instructions out of ${amazonOrders.length} total orders`);
+    
+    // Map only orders with delivery instructions to Veeqo orders
+    ordersWithInstructions.forEach(amazonOrder => {
+        const veeqoOrder = veeqoOrderMap[amazonOrder.orderId];
+        if (veeqoOrder) {
+            mapping[amazonOrder.orderId] = veeqoOrder;
+            console.log(`🔗 Mapped Amazon order ${amazonOrder.orderId} to Veeqo order ${veeqoOrder.id} (Instructions: "${amazonOrder.deliveryInstructions}")`);
+        } else {
+            console.log(`⚠️ No Veeqo order found for Amazon order ${amazonOrder.orderId} with instructions: "${amazonOrder.deliveryInstructions}"`);
+        }
+    });
+    
+    console.log(`✅ Created mapping for ${Object.keys(mapping).length} orders with delivery instructions`);
+    return mapping;
 }
 
 /**
@@ -1038,66 +1346,67 @@ async function fetchAllOrderData(orderNumbers) {
                         ? `${quantityToShip} x ${skuCodes.join(', ')}`
                         : quantityToShip;
                     
-                // Debug: Log the API order structure to see what's available
-                console.log('🔍 API Order structure for', orderNumber, ':', apiOrder);
-                console.log('🔍 API Order keys:', Object.keys(apiOrder));
-                console.log('🔍 Has allocations:', !!apiOrder.allocations);
-                console.log('🔍 Allocations length:', apiOrder.allocations?.length || 0);
-                
-                // Extract allocation_package from allocations array
-                let allocationPackage = null;
-                if (apiOrder.allocations && apiOrder.allocations.length > 0) {
-                    allocationPackage = apiOrder.allocations[0].allocation_package;
-                    console.log('🔍 Found allocation_package in allocations[0]:', allocationPackage);
-                } else {
-                    console.log('🔍 No allocations found or allocations array is empty');
-                }
-                
-                // Extract customer note if available
-                let customerNote = null;
-                if (apiOrder.customer_note && apiOrder.customer_note.text) {
-                    customerNote = apiOrder.customer_note.text;
-                    console.log('🔍 Found customer note:', customerNote);
-                }
-                
-                // Extract the required data based on actual Veeqo API structure
-                const extractedData = {
-                    deliver_to: apiOrder.delivery_method?.name || null,
-                    sku_codes: skuCodes,
-                    allocation_package: allocationPackage,
-                    line_items: apiOrder.line_items || [],
-                    shipping_addresses: apiOrder.deliver_to || null,
-                    customer: apiOrder.customer || null,
-                    customer_note: customerNote,
-                    sales_record_number: apiOrder.sales_record_number || orderNumber,
-                    reference_number: formattedReferenceNumber,
-                    id: apiOrder.id,
-                    // Additional useful fields from Veeqo API
-                    number: apiOrder.number || null,
-                    status: apiOrder.status || null,
-                    total_price: apiOrder.total_price || null,
-                    currency_code: apiOrder.currency_code || null,
-                    // HTML table data
-                    veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
-                    quantity_to_ship: quantityToShip
-                };
-                            
-                orderDataMap[orderNumber] = extractedData;
-                console.log(`✅ Matched data for sales_record_number ${orderNumber}:`, extractedData);
-            } else {
-                console.warn(`❌ No API data found for sales_record_number: ${orderNumber}`);
-                
-                // Even if no API data, store HTML table data
-                if (htmlData.veeqo_shipping_rate || htmlData.quantity_to_ship) {
-                    orderDataMap[orderNumber] = {
-                        sales_record_number: orderNumber,
+                    // Debug: Log the API order structure to see what's available
+                    console.log('🔍 API Order structure for', orderNumber, ':', apiOrder);
+                    console.log('🔍 API Order keys:', Object.keys(apiOrder));
+                    console.log('🔍 Has allocations:', !!apiOrder.allocations);
+                    console.log('🔍 Allocations length:', apiOrder.allocations?.length || 0);
+                    
+                    // Extract allocation_package from allocations array
+                    let allocationPackage = null;
+                    if (apiOrder.allocations && apiOrder.allocations.length > 0) {
+                        allocationPackage = apiOrder.allocations[0].allocation_package;
+                        console.log('🔍 Found allocation_package in allocations[0]:', allocationPackage);
+                    } else {
+                        console.log('🔍 No allocations found or allocations array is empty');
+                    }
+                    
+                    // Extract customer note if available
+                    let customerNote = null;
+                    if (apiOrder.customer_note && apiOrder.customer_note.text) {
+                        customerNote = apiOrder.customer_note.text;
+                        console.log('🔍 Found customer note:', customerNote);
+                    }
+                    
+                    // Extract the required data based on actual Veeqo API structure
+                    const extractedData = {
+                        deliver_to: apiOrder.delivery_method?.name || null,
+                        sku_codes: skuCodes,
+                        allocation_package: allocationPackage,
+                        line_items: apiOrder.line_items || [],
+                        shipping_addresses: apiOrder.deliver_to || null,
+                        customer: apiOrder.customer || null,
+                        customer_note: customerNote,
+                        sales_record_number: apiOrder.sales_record_number || orderNumber,
+                        reference_number: formattedReferenceNumber,
+                        id: apiOrder.id,
+                        // Additional useful fields from Veeqo API
+                        number: apiOrder.number || null,
+                        status: apiOrder.status || null,
+                        total_price: apiOrder.total_price || null,
+                        currency_code: apiOrder.currency_code || null,
+                        // HTML table data
                         veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
-                        quantity_to_ship: htmlData.quantity_to_ship || null,
-                        reference_number: htmlData.quantity_to_ship || '1'
+                        quantity_to_ship: quantityToShip
                     };
-                    console.log(`✅ Stored HTML data for sales_record_number ${orderNumber}:`, orderDataMap[orderNumber]);
+                                
+                    orderDataMap[orderNumber] = extractedData;
+                    console.log(`✅ Matched data for sales_record_number ${orderNumber}:`, extractedData);
+                } else {
+                    console.warn(`❌ No API data found for sales_record_number: ${orderNumber}`);
+                    
+
+                    // Even if no API data, store HTML table data
+                    if (htmlData.veeqo_shipping_rate || htmlData.quantity_to_ship) {
+                        orderDataMap[orderNumber] = {
+                            sales_record_number: orderNumber,
+                            veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
+                            quantity_to_ship: htmlData.quantity_to_ship || null,
+                            reference_number: htmlData.quantity_to_ship || '1'
+                        };
+                        console.log(`✅ Stored HTML data for sales_record_number ${orderNumber}:`, orderDataMap[orderNumber]);
+                    }
                 }
-            }
                 
             } catch (error) {
                 console.error(`Error processing order ${orderNumber}:`, error);

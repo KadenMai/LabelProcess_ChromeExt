@@ -37,6 +37,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             handleFetchOrderById(request, sender, sendResponse);
             return true; // Keep message channel open for async response
             
+        case 'updateVeeqoOrder':
+            handleUpdateVeeqoOrder(request, sender, sendResponse);
+            return true; // Keep message channel open for async response
+            
         case 'injectUSPSAutoFill':
             handleInjectUSPSAutoFill(request, sender, sendResponse);
             return true; // Keep message channel open for async response
@@ -374,6 +378,79 @@ async function handleFetchOrderById(request, sender, sendResponse) {
         
     } catch (error) {
         console.error('Error fetching order by ID:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+/**
+ * Handle updating Veeqo order
+ */
+async function handleUpdateVeeqoOrder(request, sender, sendResponse) {
+    try {
+        const { apiKey, orderId, customerNote } = request;
+        console.log('Updating Veeqo order:', orderId, 'with customer note:', customerNote);
+        
+        if (!apiKey) {
+            sendResponse({ success: false, error: 'API key is required' });
+            return;
+        }
+        
+        if (!orderId) {
+            sendResponse({ success: false, error: 'Order ID is required' });
+            return;
+        }
+        
+        if (!customerNote) {
+            sendResponse({ success: false, error: 'Customer note is required' });
+            return;
+        }
+        
+        // Try API proxy first
+        const proxyResult = await tryApiProxy('updateVeeqoOrder', apiKey, { 
+            orderId, 
+            customerNote 
+        });
+        
+        if (proxyResult && proxyResult.success) {
+            console.log('Order updated successfully via API proxy');
+            sendResponse(proxyResult);
+            return;
+        }
+        
+        console.log('API proxy failed or returned error:', proxyResult);
+        console.log('Trying direct API call...');
+        
+        // Fallback to direct API call
+        const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
+            method: 'PUT',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                order: {
+                    customer_note_attributes: {
+                        text: customerNote
+                    }
+                }
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Order updated successfully via direct API call');
+            sendResponse({ success: true, data: data });
+        } else {
+            const errorText = await response.text();
+            console.error('Failed to update order:', response.status, errorText);
+            sendResponse({ 
+                success: false, 
+                error: `API request failed: ${response.status} ${errorText}` 
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error updating Veeqo order:', error);
         sendResponse({ success: false, error: error.message });
     }
 }
