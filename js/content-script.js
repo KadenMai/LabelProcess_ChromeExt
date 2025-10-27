@@ -236,6 +236,12 @@ async function addUSPSButtonsToTable(table) {
     let buttonsSkipped = 0;
 
     rows.forEach(async (row, index) => {
+        // Skip rows that are actual headers (contain <th> elements with role="columnheader")
+        const headerCells = row.querySelectorAll('th[role="columnheader"]');
+        if (headerCells.length > 0) {
+            return; // Skip this row - it's a header row
+        }
+        
         // Get the configured column
         const cells = row.querySelectorAll('td');
         if (cells.length >= uspsButtonColumn) {
@@ -268,61 +274,8 @@ async function addUSPSButtonsToTable(table) {
             }
         }
         
-        // Add Print Note button if order has customer note
-        const orderNumber = extractOrderNumberFromRow(row);
-        if (orderNumber) {
-            const orderData = getStoredOrderData(orderNumber);
-            if (orderData && orderData.customer_note) {
-                // Get the configured Print Note column number
-                const printNoteColumn = await getPrintNoteColumn();
-                const printNoteColumnIndex = printNoteColumn - 1; // Convert to 0-based index
-                
-                if (cells.length >= printNoteColumn) {
-                    const printNoteCell = cells[printNoteColumnIndex];
-                    
-                    // Check if Print Note button already exists
-                    if (!printNoteCell.querySelector('.print-note-button')) {
-                        const printNoteButton = document.createElement('button');
-                        printNoteButton.className = 'print-note-button';
-                        printNoteButton.textContent = 'Print Note';
-                        printNoteButton.id = `print-note-${orderNumber}`;
-                        printNoteButton.title = `Print customer note for order: ${orderNumber}`;
-                        
-                        // Style the button
-                        printNoteButton.style.cssText = `
-                            background: #17a2b8;
-                            color: white;
-                            border: none;
-                            padding: 6px 12px;
-                            border-radius: 4px;
-                            font-size: 12px;
-                            cursor: pointer;
-                            margin: 2px;
-                            transition: background-color 0.3s ease;
-                        `;
-                        
-                        // Add hover effect
-                        printNoteButton.addEventListener('mouseenter', function() {
-                            this.style.backgroundColor = '#138496';
-                        });
-                        
-                        printNoteButton.addEventListener('mouseleave', function() {
-                            this.style.backgroundColor = '#17a2b8';
-                        });
-                        
-                        // Add click event listener
-                        printNoteButton.addEventListener('click', function() {
-                            console.log(`Print Note button clicked for order: ${orderNumber}`);
-                            printDeliveryInstructions(orderData);
-                        });
-                        
-                        printNoteCell.appendChild(printNoteButton);
-                        console.log(`Added Print Note button to column ${printNoteColumn} for order: ${orderNumber}`);
-                        console.log(`🔍 Print Note Button Data for Order ${orderNumber}:`, orderData);
-                    }
-                }
-            }
-        }
+        // Print Note buttons will be created after Fill Order Data action
+        // No need to check for customer notes during initial button creation
     });
     
     console.log(`USPS buttons: ${buttonsAdded} added, ${buttonsSkipped} already existed`);
@@ -335,11 +288,6 @@ async function addUSPSButtonsToTable(table) {
  */
 function extractOrderNumberFromRow(row) {
     try {
-        // Check cache first
-        if (rowOrderNumberCache.has(row)) {
-            return rowOrderNumberCache.get(row);
-        }
-        
         let orderNumber = null;
         
         // Get all cells in the row
@@ -349,14 +297,17 @@ function extractOrderNumberFromRow(row) {
         if (cells.length >= 4) {
             const orderCell = cells[3]; // Column 4 (0-indexed)
             
-            // Look for the order number in the span element
-            // Path: /html/body/div[1]/div/div[1]/div[2]/div/div[2]/div/div[2]/div[2]/table/tbody/tr[1]/td[4]/div/div/div[2]/div/div/button/span
-            const spanElement = orderCell.querySelector('span');
-            if (spanElement) {
-                const orderText = spanElement.textContent?.trim();
-                if (orderText) {
-                    console.log(`Found order text in span: "${orderText}"`);
-                    orderNumber = orderText;
+            // Look for the button with class containing "act-react-listing-row-item-name"
+            const orderButton = orderCell.querySelector('button[class*="act-react-listing-row-item-name"]');
+            if (orderButton) {
+                // Get the span element inside this button (there should be only one)
+                const spanElement = orderButton.querySelector('span');
+                if (spanElement) {
+                    const orderText = spanElement.textContent?.trim();
+                    if (orderText) {
+                        console.log(`Found order text in span: "${orderText}"`);
+                        orderNumber = orderText;
+                    }
                 }
             }
             
@@ -374,14 +325,9 @@ function extractOrderNumberFromRow(row) {
             console.log('No order number found in column 4');
         }
         
-        // Cache the result (even if null)
-        rowOrderNumberCache.set(row, orderNumber);
-        
         return orderNumber;
     } catch (error) {
         console.error('Error extracting order number from row:', error);
-        // Cache the error result to avoid repeated processing
-        rowOrderNumberCache.set(row, null);
         return null;
     }
 }
@@ -488,18 +434,12 @@ function createUSPSButtonWithOrderNumber(orderNumber) {
     button.id = orderNumber || 'unknown-order';
     button.title = orderNumber ? `Order: ${orderNumber}` : 'Order number not found';
     
-    // Log the extractedData for this USPS button
-    if (orderNumber) {
-        const orderData = getStoredOrderData(orderNumber);
-        if (orderData) {
-            console.log(`🔍 USPS Button Data for Order ${orderNumber}:`, orderData);
-        } else {
-            console.log(`🔍 USPS Button for Order ${orderNumber}: No data found`);
-        }
-    }
+    // Logging removed - only call getStoredOrderData when actually needed
     
     // Initially hide the button until data is loaded
     button.style.display = 'none';
+    
+    console.log(`🔍 Created USPS button for Order ${orderNumber} (initially hidden)`);
     
     // Add click event listener
     button.addEventListener('click', function() {
@@ -514,109 +454,79 @@ function createUSPSButtonWithOrderNumber(orderNumber) {
  * Go to USPS with order number (will fetch order data if available)
  * @param {string} orderNumber - The order number
  */
-function goToUSPSWithOrderNumber(orderNumber) {
-    console.log('🔍 goToUSPSWithOrderNumber - Called with order number:', orderNumber);
-    
-    // Check if we have stored order data for this order number
-    const storedOrderData = getStoredOrderData(orderNumber);
-    
-    if (storedOrderData) {
-        console.log(`✅ Using stored order data for ${orderNumber}:`, storedOrderData);
-        goToUSPS(storedOrderData);
-    } else {
-        console.log(`❌ No stored order data for ${orderNumber}, opening USPS without auto-fill`);
-        console.log('🔍 Make sure you have clicked "Fill Order Data" button first!');
-        goToUSPS(null);
-    }
-}
 
-// Global cache for order data to avoid repeated localStorage access
-let cachedOrderData = null;
-let orderDataLoaded = false;
-
-// Cache for order numbers per row to avoid repeated extraction
-let rowOrderNumberCache = new Map();
-
-// Cache for logged order data to avoid repeated logging
-let loggedOrderDataCache = new Set();
+// Cache for order data logging to prevent repeated messages
+const loggedOrderDataCache = new Set();
 
 /**
- * Load all stored order data once and cache it
- * @returns {Object|null} All stored order data or null if not found
- */
-function loadAllStoredOrderData() {
-    if (orderDataLoaded && cachedOrderData !== null) {
-        return cachedOrderData;
-    }
-    
-    try {
-        const storedData = localStorage.getItem('veeqoOrderData');
-        console.log('🔍 Loading stored order data from localStorage...');
-        console.log('🔍 getStoredOrderData - Raw stored data:', storedData); // Log raw data once
-        
-        if (storedData) {
-            cachedOrderData = JSON.parse(storedData);
-            orderDataLoaded = true;
-            console.log(`🔍 Loaded ${Object.keys(cachedOrderData).length} orders into cache`);
-            console.log('🔍 Available order numbers:', Object.keys(cachedOrderData));
-            return cachedOrderData;
-        } else {
-            console.log('🔍 No stored order data found in localStorage');
-            cachedOrderData = null;
-            orderDataLoaded = true;
-            return null;
-        }
-    } catch (error) {
-        console.error('Error loading stored order data:', error);
-        cachedOrderData = null;
-        orderDataLoaded = true;
-        return null;
-    }
-}
-
-/**
- * Get stored order data for a specific order number (uses cache)
+ * Get stored order data for a specific order number from localStorage
  * @param {string} orderNumber - The order number
  * @returns {Object|null} The stored order data or null if not found
  */
 function getStoredOrderData(orderNumber) {
-    // Load data once if not already loaded
-    if (!orderDataLoaded) {
-        loadAllStoredOrderData();
-    }
-    
-    if (cachedOrderData && cachedOrderData[orderNumber]) {
-        // Only log once per order number
-        if (!loggedOrderDataCache.has(orderNumber)) {
-            console.log(`🔍 Found cached data for order: ${orderNumber}`);
-            loggedOrderDataCache.add(orderNumber);
+    try {
+        const storedData = localStorage.getItem('veeqoOrderData');
+        
+        if (storedData) {
+            const orderDataMap = JSON.parse(storedData);
+            
+            if (orderDataMap && orderDataMap[orderNumber]) {
+                // Only log once per order number
+                if (!loggedOrderDataCache.has(orderNumber)) {
+                    console.log(`🔍 Found cached data for order: ${orderNumber}`);
+                    loggedOrderDataCache.add(orderNumber);
+                }
+                return orderDataMap[orderNumber];
+            } else {
+                // Only log once per order number
+                if (!loggedOrderDataCache.has(orderNumber)) {
+                    console.log(`🔍 No cached data for order: ${orderNumber}`);
+                    console.log(`🔍 Click "Fill Order Data" button first to fetch order data`);
+                    loggedOrderDataCache.add(orderNumber);
+                }
+                return null;
+            }
+        } else {
+            console.log(`🔍 No stored order data found in localStorage`);
+            console.log(`🔍 Click "Fill Order Data" button first to fetch order data`);
+            return null;
         }
-        return cachedOrderData[orderNumber];
-    } else {
-        // Only log once per order number
-        if (!loggedOrderDataCache.has(`no-data-${orderNumber}`)) {
-            console.log(`🔍 No cached data for order: ${orderNumber}`);
-            loggedOrderDataCache.add(`no-data-${orderNumber}`);
-        }
+    } catch (error) {
+        console.error('Error getting stored order data:', error);
         return null;
     }
 }
 
-/**
- * Clear the order data cache (call when new data is stored)
- */
-function clearOrderDataCache() {
-    cachedOrderData = null;
-    orderDataLoaded = false;
-    rowOrderNumberCache.clear(); // Clear row cache as well
-    loggedOrderDataCache.clear(); // Clear logging cache as well
-    console.log('🔍 Order data cache cleared');
+function goToUSPSWithOrderNumber(orderNumber) {
+    console.log(`🔍 Opening USPS Label Manager for order: ${orderNumber}`);
+    
+    try {
+        // Get cached order data from localStorage (synchronous - faster!)
+        const orderData = getStoredOrderData(orderNumber);
+        
+        if (orderData) {
+            console.log(`✅ Using cached order data for USPS auto-fill:`, orderData);
+            goToUSPS(orderData);
+        } else {
+            console.log(`❌ No cached data for ${orderNumber}, opening USPS page without auto-fill`);
+            console.log(`🔍 Click "Fill Order Data" button first to fetch order data`);
+            goToUSPS();
+        }
+    } catch (error) {
+        console.error('❌ Error getting cached order data:', error);
+        console.log('🔍 Opening USPS page without auto-fill due to error');
+        goToUSPS();
+    }
 }
+
+// Using localStorage for fast synchronous caching
+
+
 
 /**
  * Show all USPS buttons after order data is loaded
  */
-function showAllUSPSButtons() {
+async function showAllUSPSButtons() {
     console.log('🔍 Showing all USPS buttons...');
     
     const uspsButtons = document.querySelectorAll('.usps-label-button');
@@ -632,30 +542,138 @@ function showAllUSPSButtons() {
     
     console.log(`✅ Made ${buttonsShown} USPS buttons visible`);
     
-    // Also check for Print Note buttons and make them visible
-    const printNoteButtons = document.querySelectorAll('.print-note-button');
-    let printNoteButtonsShown = 0;
-    
-    printNoteButtons.forEach(button => {
-        if (button.style.display === 'none') {
-            button.style.display = 'inline-block';
-            printNoteButtonsShown++;
-        }
-    });
-    
-    console.log(`✅ Made ${printNoteButtonsShown} Print Note buttons visible`);
+    // Create Print Note buttons for orders with customer notes
+    await createPrintNoteButtons();
     
     // Show a notification to the user
-    if (buttonsShown > 0 || printNoteButtonsShown > 0) {
-        let message = `✅ ${buttonsShown} USPS buttons are now ready!`;
-        if (printNoteButtonsShown > 0) {
-            message += ` ${printNoteButtonsShown} Print Note buttons are also available.`;
-        }
-        message += ' Click any button to use the features.';
+    if (buttonsShown > 0) {
+        const message = `✅ ${buttonsShown} USPS buttons are now ready! Click any button to use the features.`;
         showSimpleNotification(message);
     }
 }
 
+
+/**
+ * Create Print Note buttons for orders with customer notes
+ */
+async function createPrintNoteButtons() {
+    console.log('🔍 createPrintNoteButtons() called');
+    
+    const table = document.getElementById('allocations-table');
+    if (!table) {
+        console.log('❌ No allocations table found');
+        return;
+    }
+    
+    const tbody = table.querySelector('tbody');
+    if (!tbody) {
+        console.log('❌ No tbody found');
+        return;
+    }
+    
+    const rows = tbody.querySelectorAll('tr');
+    console.log(`🔍 Found ${rows.length} rows in table`);
+    
+    const printNoteColumn = await getPrintNoteColumn();
+    console.log(`🔍 Print Note column configured as: ${printNoteColumn}`);
+    const printNoteColumnIndex = printNoteColumn - 1;
+    
+    let printNoteButtonsCreated = 0;
+    let ordersWithNotes = 0;
+    let ordersWithoutNotes = 0;
+    
+    rows.forEach((row, index) => {
+        // Skip rows that don't have enough columns (likely headers/filters)
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 4) {
+            return; // Skip this row
+        }
+        
+        // Skip rows that are actual headers (contain <th> elements with role="columnheader")
+        const headerCells = row.querySelectorAll('th[role="columnheader"]');
+        if (headerCells.length > 0) {
+            return; // Skip this row - it's a header row
+        }
+        
+        const orderNumber = extractOrderNumberFromRow(row);
+        if (orderNumber) {
+            console.log(`🔍 Checking row ${index + 1} - Order: ${orderNumber}`);
+            
+            const orderData = getStoredOrderData(orderNumber);
+            if (orderData) {
+                console.log(`🔍 Order data found for ${orderNumber}:`, orderData);
+                
+                if (orderData.customer_note) {
+                    ordersWithNotes++;
+                    console.log(`✅ Order ${orderNumber} has customer note: "${orderData.customer_note}"`);
+                    
+                    const cells = row.querySelectorAll('td');
+                    
+                    if (cells.length >= printNoteColumn) {
+                        const printNoteCell = cells[printNoteColumnIndex];
+                        
+                        // Check if Print Note button already exists
+                        if (!printNoteCell.querySelector('.print-note-button')) {
+                            const printNoteButton = document.createElement('button');
+                            printNoteButton.className = 'print-note-button';
+                            printNoteButton.textContent = 'Print Note';
+                            printNoteButton.id = `print-note-${orderNumber}`;
+                            printNoteButton.title = `Print customer note for order: ${orderNumber}`;
+                            
+                            // Style the button
+                            printNoteButton.style.cssText = `
+                                background: #17a2b8;
+                                color: white;
+                                border: none;
+                                padding: 6px 12px;
+                                border-radius: 4px;
+                                font-size: 12px;
+                                cursor: pointer;
+                                margin: 2px;
+                                transition: background-color 0.3s ease;
+                            `;
+                            
+                            // Add hover effect
+                            printNoteButton.addEventListener('mouseenter', function() {
+                                this.style.backgroundColor = '#138496';
+                            });
+                            
+                            printNoteButton.addEventListener('mouseleave', function() {
+                                this.style.backgroundColor = '#17a2b8';
+                            });
+                            
+                            // Add click event listener
+                            printNoteButton.addEventListener('click', function() {
+                                console.log(`Print Note button clicked for order: ${orderNumber}`);
+                                printDeliveryInstructions(orderData);
+                            });
+                            
+                            printNoteCell.appendChild(printNoteButton);
+                            printNoteButtonsCreated++;
+                            console.log(`✅ Added Print Note button to column ${printNoteColumn} for order: ${orderNumber}`);
+                        }
+                    }
+                } else {
+                    ordersWithoutNotes++;
+                    console.log(`🔍 Order ${orderNumber} has no customer note`);
+                }
+            } else {
+                console.log(`❌ No order data found for ${orderNumber}`);
+            }
+        }
+        // Note: Removed "No order number found" log since we now skip non-data rows
+    });
+    
+    console.log(`📊 Summary: ${ordersWithNotes} orders with notes, ${ordersWithoutNotes} orders without notes`);
+    console.log(`📊 Created ${printNoteButtonsCreated} Print Note buttons`);
+    
+    if (printNoteButtonsCreated > 0) {
+        console.log(`✅ Created ${printNoteButtonsCreated} Print Note buttons`);
+        showSimpleNotification(`✅ ${printNoteButtonsCreated} Print Note buttons are also available!`);
+    } else {
+        console.log(`ℹ️ No Print Note buttons created. Check if orders have customer notes.`);
+    }
+}
 
 /**
  * Add "Fill Order Data" button near the bulk actions button
@@ -694,11 +712,6 @@ function addFillOrderDataButton() {
         console.error('Error adding Fill Order Data button:', error);
     }
 }
-
-/**
- * Add the Fill Order Data button near a specific element
- * @param {HTMLElement} targetElement - The element to add the button near
- */
 function addButtonNearElement(targetElement) {
     // Check if button already exists
     if (document.getElementById('fill-order-data-btn')) {
@@ -781,13 +794,13 @@ async function handleFillOrderDataClick() {
         const orderDataMap = await fetchAllOrderData(orderNumbers);
         console.log('Fetched order data:', orderDataMap);
         
-        // Store the order data
+        // Store the order data in localStorage (faster synchronous access)
         localStorage.setItem('veeqoOrderData', JSON.stringify(orderDataMap));
         console.log('Order data stored in localStorage');
         
-        // Clear the cache so it will reload the new data
-        clearOrderDataCache();
-        
+        // Data is immediately available since localStorage is synchronous
+        // No cache clearing needed - fresh data is now ready for USPS buttons
+        console.log('Fresh order data is now available for USPS buttons');
         
         // Clear progress interval
         clearInterval(progressInterval);
@@ -990,11 +1003,11 @@ async function fetchAllOrderData(orderNumbers) {
             console.log(`📋 Order ${index + 1} - id:`, order.id);
         });
         
-        // Create a mapping of sales_record_number to order data
+        // Create a mapping of number to order data
         const apiOrderMap = {};
         allOrders.forEach(order => {
-            if (order.sales_record_number) {
-                apiOrderMap[order.sales_record_number] = order;
+            if (order.number) {
+                apiOrderMap[order.number] = order;
             }
         });
         
@@ -1025,66 +1038,66 @@ async function fetchAllOrderData(orderNumbers) {
                         ? `${quantityToShip} x ${skuCodes.join(', ')}`
                         : quantityToShip;
                     
-        // Debug: Log the API order structure to see what's available
-        console.log('🔍 API Order structure for', orderNumber, ':', apiOrder);
-        console.log('🔍 API Order keys:', Object.keys(apiOrder));
-        console.log('🔍 Has allocations:', !!apiOrder.allocations);
-        console.log('🔍 Allocations length:', apiOrder.allocations?.length || 0);
-        
-        // Extract allocation_package from allocations array
-        let allocationPackage = null;
-        if (apiOrder.allocations && apiOrder.allocations.length > 0) {
-            allocationPackage = apiOrder.allocations[0].allocation_package;
-            console.log('🔍 Found allocation_package in allocations[0]:', allocationPackage);
-        } else {
-            console.log('🔍 No allocations found or allocations array is empty');
-        }
-        
-        // Extract customer note if available
-        let customerNote = null;
-        if (apiOrder.customer_note && apiOrder.customer_note.text) {
-            customerNote = apiOrder.customer_note.text;
-            console.log('🔍 Found customer note:', customerNote);
-        }
-        
-        // Extract the required data based on actual Veeqo API structure
-        const extractedData = {
-            deliver_to: apiOrder.delivery_method?.name || null,
-            sku_codes: skuCodes,
-            allocation_package: allocationPackage,
-            line_items: apiOrder.line_items || [],
-            shipping_addresses: apiOrder.deliver_to || null,
-            customer: apiOrder.customer || null,
-            customer_note: customerNote,
-            sales_record_number: apiOrder.sales_record_number || orderNumber,
-            reference_number: formattedReferenceNumber,
-            id: apiOrder.id,
-            // Additional useful fields from Veeqo API
-            number: apiOrder.number || null,
-            status: apiOrder.status || null,
-            total_price: apiOrder.total_price || null,
-            currency_code: apiOrder.currency_code || null,
-            // HTML table data
-            veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
-            quantity_to_ship: quantityToShip
-        };
-                    
-                    orderDataMap[orderNumber] = extractedData;
-                    console.log(`✅ Matched data for sales_record_number ${orderNumber}:`, extractedData);
+                // Debug: Log the API order structure to see what's available
+                console.log('🔍 API Order structure for', orderNumber, ':', apiOrder);
+                console.log('🔍 API Order keys:', Object.keys(apiOrder));
+                console.log('🔍 Has allocations:', !!apiOrder.allocations);
+                console.log('🔍 Allocations length:', apiOrder.allocations?.length || 0);
+                
+                // Extract allocation_package from allocations array
+                let allocationPackage = null;
+                if (apiOrder.allocations && apiOrder.allocations.length > 0) {
+                    allocationPackage = apiOrder.allocations[0].allocation_package;
+                    console.log('🔍 Found allocation_package in allocations[0]:', allocationPackage);
                 } else {
-                    console.warn(`❌ No API data found for sales_record_number: ${orderNumber}`);
-                    
-                    // Even if no API data, store HTML table data
-                    if (htmlData.veeqo_shipping_rate || htmlData.quantity_to_ship) {
-                        orderDataMap[orderNumber] = {
-                            sales_record_number: orderNumber,
-                            veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
-                            quantity_to_ship: htmlData.quantity_to_ship || null,
-                            reference_number: htmlData.quantity_to_ship || '1'
-                        };
-                        console.log(`✅ Stored HTML data for sales_record_number ${orderNumber}:`, orderDataMap[orderNumber]);
-                    }
+                    console.log('🔍 No allocations found or allocations array is empty');
                 }
+                
+                // Extract customer note if available
+                let customerNote = null;
+                if (apiOrder.customer_note && apiOrder.customer_note.text) {
+                    customerNote = apiOrder.customer_note.text;
+                    console.log('🔍 Found customer note:', customerNote);
+                }
+                
+                // Extract the required data based on actual Veeqo API structure
+                const extractedData = {
+                    deliver_to: apiOrder.delivery_method?.name || null,
+                    sku_codes: skuCodes,
+                    allocation_package: allocationPackage,
+                    line_items: apiOrder.line_items || [],
+                    shipping_addresses: apiOrder.deliver_to || null,
+                    customer: apiOrder.customer || null,
+                    customer_note: customerNote,
+                    sales_record_number: apiOrder.sales_record_number || orderNumber,
+                    reference_number: formattedReferenceNumber,
+                    id: apiOrder.id,
+                    // Additional useful fields from Veeqo API
+                    number: apiOrder.number || null,
+                    status: apiOrder.status || null,
+                    total_price: apiOrder.total_price || null,
+                    currency_code: apiOrder.currency_code || null,
+                    // HTML table data
+                    veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
+                    quantity_to_ship: quantityToShip
+                };
+                            
+                orderDataMap[orderNumber] = extractedData;
+                console.log(`✅ Matched data for sales_record_number ${orderNumber}:`, extractedData);
+            } else {
+                console.warn(`❌ No API data found for sales_record_number: ${orderNumber}`);
+                
+                // Even if no API data, store HTML table data
+                if (htmlData.veeqo_shipping_rate || htmlData.quantity_to_ship) {
+                    orderDataMap[orderNumber] = {
+                        sales_record_number: orderNumber,
+                        veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
+                        quantity_to_ship: htmlData.quantity_to_ship || null,
+                        reference_number: htmlData.quantity_to_ship || '1'
+                    };
+                    console.log(`✅ Stored HTML data for sales_record_number ${orderNumber}:`, orderDataMap[orderNumber]);
+                }
+            }
                 
             } catch (error) {
                 console.error(`Error processing order ${orderNumber}:`, error);
@@ -1236,65 +1249,8 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// Periodic check to ensure buttons are always present
-let periodicCheckInterval = null;
-
-function startPeriodicCheck() {
-    // Clear any existing interval
-    if (periodicCheckInterval) {
-        clearInterval(periodicCheckInterval);
-    }
-    
-    // Check every 2 seconds for missing buttons
-    periodicCheckInterval = setInterval(async () => {
-        const table = document.getElementById('allocations-table');
-        if (table && isVeeqoAllocationsPage()) {
-            const tbody = table.querySelector('tbody');
-            if (tbody) {
-                const rows = tbody.querySelectorAll('tr');
-                let missingButtons = 0;
-                
-                // Get the USPS button column once for all rows
-                const uspsButtonColumn = await getUSPSButtonColumn();
-                const printNoteColumn = await getPrintNoteColumn();
-                
-                rows.forEach((row) => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length >= uspsButtonColumn) {
-                        const targetCell = cells[uspsButtonColumn - 1];
-                        if (!targetCell.querySelector('.usps-label-button')) {
-                            missingButtons++;
-                        }
-                    }
-                    
-                    // Also check for missing Print Note buttons
-                    const orderNumber = extractOrderNumberFromRow(row);
-                    if (orderNumber) {
-                        const orderData = getStoredOrderData(orderNumber);
-                        if (orderData && orderData.customer_note) {
-                            if (cells.length >= printNoteColumn) {
-                                const printNoteCell = cells[printNoteColumn - 1];
-                                if (!printNoteCell.querySelector('.print-note-button')) {
-                                    missingButtons++;
-                                }
-                            }
-                        }
-                    }
-                });
-                
-                if (missingButtons > 0) {
-                    console.log(`Found ${missingButtons} rows missing USPS buttons, adding them...`);
-                    addUSPSButtonsToTable(table);
-                }
-            }
-        }
-    }, 2000);
-    
-    console.log('Started periodic check for USPS buttons');
-}
-
-// Start periodic check after a delay
-setTimeout(startPeriodicCheck, 3000);
+// Periodic check removed - user should click "Fill Order Data" when page changes
+// This gives user control over when to fetch fresh data and prevents infinite loops
 
 // Also watch for Veeqo-specific loading indicators
 function watchForVeeqoLoading() {
