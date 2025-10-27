@@ -216,17 +216,8 @@ async function handleFetchVeeqoOrders(request, sender, sendResponse) {
             return;
         }
         
-        // Try to use API proxy first (if on Veeqo page)
-        console.log('🔍 Background: Trying API proxy first...');
-        const proxyResult = await tryApiProxy('fetchOrders', apiKey, params);
-        if (proxyResult && proxyResult.success) {
-            console.log('✅ Background: Fetch orders via proxy successful:', proxyResult);
-            sendResponse(proxyResult);
-            return;
-        }
-        
-        console.log('🔍 Background: API proxy failed or returned error:', proxyResult);
-        console.log('🔍 Background: Trying direct API call...');
+        // Skip API proxy to avoid CORS errors - use direct API call
+        console.log('🔍 Background: Using direct API call (skipping proxy to avoid CORS)...');
         
         // Fallback to direct API call
         const defaultParams = {
@@ -340,15 +331,8 @@ async function handleFetchOrderById(request, sender, sendResponse) {
             return;
         }
         
-        // Try API proxy first
-        const proxyResult = await tryApiProxy('fetchOrderById', apiKey, { orderId });
-        if (proxyResult) {
-            console.log('Order fetch via proxy:', proxyResult);
-            sendResponse(proxyResult);
-            return;
-        }
-        
-        // Fallback to direct API call
+        // Skip API proxy to avoid CORS errors - use direct API call
+        console.log('🔍 Background: Using direct API call for fetchOrderById (skipping proxy to avoid CORS)...');
         const url = `https://api.veeqo.com/orders/${orderId}`;
         console.log('Making direct request to:', url);
         
@@ -405,22 +389,8 @@ async function handleUpdateVeeqoOrder(request, sender, sendResponse) {
             return;
         }
         
-        // Try API proxy first
-        const proxyResult = await tryApiProxy('updateVeeqoOrder', apiKey, { 
-            orderId, 
-            customerNote 
-        });
-        
-        if (proxyResult && proxyResult.success) {
-            console.log('Order updated successfully via API proxy');
-            sendResponse(proxyResult);
-            return;
-        }
-        
-        console.log('API proxy failed or returned error:', proxyResult);
-        console.log('Trying direct API call...');
-        
-        // Fallback to direct API call
+        // Skip API proxy to avoid CORS errors - use direct API call
+        console.log('🔍 Background: Using direct API call for updateVeeqoOrder (skipping proxy to avoid CORS)...');
         const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
             method: 'PUT',
             headers: {
