@@ -28,8 +28,11 @@ if (window.location.hostname === 'app.veeqo.com') {
                     case 'fetchOrderById':
                         result = await fetchOrderById(apiKey, params.orderId);
                         break;
-                    case 'updateVeeqoOrder':
-                        result = await updateVeeqoOrder(apiKey, params.orderId, params.customerNote);
+                    case 'updateVeeqoOrder_CustomerNote':
+                        result = await updateVeeqoOrder_CustomerNote(apiKey, params.orderId, params.customerNote);
+                        break;
+                    case 'updateVeeqoOrder_InternalNote':
+                        result = await updateVeeqoOrder_InternalNote(apiKey, params.orderId, params.internalNote);
                         break;
                     default:
                         result = { success: false, error: 'Unknown action' };
@@ -187,7 +190,7 @@ if (window.location.hostname === 'app.veeqo.com') {
     }
     
     // Update Veeqo order
-    async function updateVeeqoOrder(apiKey, orderId, customerNote) {
+    async function updateVeeqoOrder_CustomerNote(apiKey, orderId, customerNote) {
         try {
             const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
                 method: 'PUT',
@@ -200,6 +203,36 @@ if (window.location.hostname === 'app.veeqo.com') {
                         customer_note_attributes: {
                             text: customerNote
                         }
+                    }
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                return { success: true, data: data };
+            } else {
+                const errorText = await response.text();
+                return { success: false, error: `Order update failed with status: ${response.status} - ${errorText}` };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    
+    // Update Veeqo order internal note
+    async function updateVeeqoOrder_InternalNote(apiKey, orderId, internalNote) {
+        try {
+            const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
+                method: 'PUT',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    order: {
+                        employee_notes_attributes: [
+                            { text: internalNote }
+                        ]
                     }
                 })
             });

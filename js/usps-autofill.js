@@ -774,18 +774,22 @@ function clickGetRatesButton() {
             'button[class*="get-rates"]',
             'button[class*="rates"]',
             'input[type="submit"][id*="rates"]',
-            'button:contains("Get Rates")',
-            'button:contains("Get rates")',
-            'button:contains("Rates")'
+            'button[type="submit"]'
         ];
         
         for (const selector of alternativeSelectors) {
             try {
-                getRatesButton = document.querySelector(selector);
-                if (getRatesButton) {
-                    console.log('✅ Found Get Rates button with selector:', selector);
-                    break;
+                const buttons = document.querySelectorAll(selector);
+                // Look for button with "Get Rates" or "Rates" text
+                for (const btn of buttons) {
+                    const text = btn.textContent?.trim() || btn.value || '';
+                    if (text.toLowerCase().includes('rate') || text.toLowerCase().includes('get')) {
+                        getRatesButton = btn;
+                        console.log('✅ Found Get Rates button with selector:', selector, 'text:', text);
+                        break;
+                    }
                 }
+                if (getRatesButton) break;
             } catch (error) {
                 console.log('🔍 Selector failed:', selector, error.message);
             }
@@ -800,7 +804,8 @@ function clickGetRatesButton() {
             const id = btn.id || 'no-id';
             const text = btn.textContent?.trim() || btn.value || 'no-text';
             const className = btn.className || 'no-class';
-            console.log(`🔍 Button ${index + 1}: id="${id}", text="${text}", class="${className}"`);
+            const disabled = btn.disabled;
+            console.log(`🔍 Button ${index + 1}: id="${id}", text="${text}", class="${className}", disabled=${disabled}`);
         });
         
         console.log('❌ Get Rates button not found with any method');
@@ -813,11 +818,18 @@ function clickGetRatesButton() {
         text: getRatesButton.textContent?.trim(),
         className: getRatesButton.className,
         disabled: getRatesButton.disabled,
-        visible: getRatesButton.offsetParent !== null
+        visible: getRatesButton.offsetParent !== null,
+        display: window.getComputedStyle(getRatesButton).display
     });
     
     if (getRatesButton.disabled) {
-        console.log('⚠️ Get Rates button is disabled, cannot click');
+        console.log('⚠️ Get Rates button is disabled, waiting and retrying...');
+        // Wait a bit and check again
+        setTimeout(() => {
+            if (!getRatesButton.disabled) {
+                console.log('✅ Button is now enabled');
+            }
+        }, 1000);
         return false;
     }
     
@@ -826,20 +838,38 @@ function clickGetRatesButton() {
     }
     
     try {
-        console.log('🔍 Clicking Get Rates button...');
+        console.log('🔍 Attempting to click Get Rates button...');
+        
+        // Try multiple click methods
+        // Method 1: Direct click
         getRatesButton.click();
-        console.log('✅ Get Rates button clicked successfully');
+        console.log('✅ Direct click() called');
         
-        // Also try dispatching a click event as backup
-        setTimeout(() => {
-            console.log('🔍 Dispatching additional click event...');
-            getRatesButton.dispatchEvent(new MouseEvent('click', {
-                view: window,
-                bubbles: true,
-                cancelable: true
-            }));
-        }, 100);
+        // Method 2: MouseEvent
+        const clickEvent = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+            buttons: 1
+        });
+        getRatesButton.dispatchEvent(clickEvent);
+        console.log('✅ MouseEvent dispatched');
         
+        // Method 3: Focus and Enter key
+        if (getRatesButton.focus) {
+            getRatesButton.focus();
+            const enterEvent = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                which: 13,
+                bubbles: true
+            });
+            getRatesButton.dispatchEvent(enterEvent);
+            console.log('✅ Enter key event dispatched');
+        }
+        
+        console.log('✅ Get Rates button click attempts completed');
         return true;
     } catch (error) {
         console.log('❌ Error clicking Get Rates button:', error);
@@ -1273,6 +1303,24 @@ if (isUSPSFormPage()) {
     
     // Use dynamic detection instead of fixed delays
     waitForUSPSPageReady();
+    
+    // Also try to add the Update USPS E-price button (with retry mechanism)
+    // This will keep trying until the target element is found
+    let buttonRetryCount = 0;
+    const maxButtonRetries = 50; // Try for 5 seconds (50 * 100ms)
+    
+    const buttonRetryInterval = setInterval(() => {
+        buttonRetryCount++;
+        const targetElement = document.querySelector('.d-flex.justify-content-between.mb-5');
+        
+        if (targetElement) {
+            clearInterval(buttonRetryInterval);
+            addUpdateUSPSEpriceButton();
+        } else if (buttonRetryCount >= maxButtonRetries) {
+            clearInterval(buttonRetryInterval);
+            console.log('⚠️ Could not find target element for Update USPS E-price button after max retries');
+        }
+    }, 100); // Check every 100ms
 }
 
 /**
@@ -1285,6 +1333,7 @@ function waitForUSPSPageReady() {
     if (isUSPSPageReady()) {
         console.log('✅ USPS page is already ready, initializing immediately');
         initializeUSPSAutoFill();
+        addUpdateUSPSEpriceButton();
         return;
     }
     
@@ -1300,9 +1349,12 @@ function waitForUSPSPageReady() {
             console.log('✅ USPS page is now ready, initializing auto-fill');
             clearInterval(checkInterval);
             initializeUSPSAutoFill();
+            addUpdateUSPSEpriceButton();
         } else if (checkCount >= maxChecks) {
             console.log('❌ Max checks reached, USPS page may not be ready');
             clearInterval(checkInterval);
+            // Still try to add the button even if page readiness check fails
+            addUpdateUSPSEpriceButton();
         }
     }, 100); // Check every 100ms
 }
@@ -1351,6 +1403,737 @@ function isUSPSPageReady() {
     }
     
     return isReady;
+}
+
+/**
+ * Add "Update USPS E-price" button to the page
+ */
+function addUpdateUSPSEpriceButton() {
+    // Check if button already exists
+    if (document.getElementById('update-usps-eprice-btn')) {
+        console.log('Update USPS E-price button already exists');
+        return;
+    }
+
+    // Find the target element with class "d-flex justify-content-between mb-5"
+    const targetElement = document.querySelector('.d-flex.justify-content-between.mb-5');
+    
+    if (!targetElement) {
+        console.log('Target element not found, retrying in 1 second...');
+        // Retry after 1 second in case the element hasn't loaded yet
+        setTimeout(addUpdateUSPSEpriceButton, 1000);
+        return;
+    }
+
+    console.log('✅ Found target element, adding Update USPS E-price button');
+
+    // Create the button
+    const button = document.createElement('button');
+    button.id = 'update-usps-eprice-btn';
+    button.textContent = 'Update USPS E-price';
+    button.className = 'btn btn-primary';
+    button.style.cssText = `
+        background: #007bff;
+        color: white;
+        border: 1px solid #007bff;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        margin-left: 10px;
+    `;
+
+    // Add hover effect
+    button.addEventListener('mouseenter', () => {
+        button.style.backgroundColor = '#0056b3';
+    });
+
+    button.addEventListener('mouseleave', () => {
+        button.style.backgroundColor = '#007bff';
+    });
+
+    // Add click event listener
+    button.addEventListener('click', handleUpdateUSPSEpriceClick);
+
+    // Append the button to the target element
+    targetElement.appendChild(button);
+    console.log('✅ Update USPS E-price button added successfully');
+}
+
+/**
+ * Handle click event for Update USPS E-price button
+ */
+async function handleUpdateUSPSEpriceClick() {
+    console.log('🔄 Update USPS E-price button clicked - Processing ALL orders');
+    
+    try {
+        // Disable button and show loading state
+        const button = document.getElementById('update-usps-eprice-btn');
+        const originalText = button.textContent;
+        button.textContent = 'Processing...';
+        button.disabled = true;
+        button.style.backgroundColor = '#6c757d';
+
+        // Step 1: Get API key
+        const apiKey = await new Promise((resolve, reject) => {
+            chrome.storage.sync.get(['veeqoApiKey'], (result) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else if (result.veeqoApiKey) {
+                    resolve(result.veeqoApiKey);
+                } else {
+                    reject(new Error('Veeqo API key not configured. Please set it in extension settings.'));
+                }
+            });
+        });
+
+        console.log('✅ Retrieved API key');
+
+        // Step 2: Fetch ALL orders from Veeqo API with pagination (all pages)
+        console.log('🔍 Fetching ALL orders from Veeqo API with pagination (will fetch all pages)...');
+        const allOrders = await fetchAllOrdersWithPagination(apiKey, {
+            page_size: 100,
+            status: 'awaiting_fulfillment'
+        });
+        
+        console.log(`✅ Fetched ${allOrders.length} total orders from all pages`);
+
+        if (allOrders.length === 0) {
+            throw new Error('No orders found to process');
+        }
+
+        // Step 3: Filter orders that have empty/null employee_notes
+        const ordersToProcess = [];
+        for (const order of allOrders) {
+            const employeeNotes = order.employee_notes || [];
+            const hasNotes = employeeNotes.some(note => note && note.text && note.text.trim() !== '');
+            
+            if (!hasNotes) {
+                ordersToProcess.push(order);
+            }
+        }
+
+        console.log(`📊 Found ${ordersToProcess.length} orders without employee notes out of ${allOrders.length} total orders`);
+
+        if (ordersToProcess.length === 0) {
+            alert('✅ All orders already have employee notes. No orders to process.');
+            button.textContent = originalText;
+            button.disabled = false;
+            button.style.backgroundColor = '#007bff';
+            return;
+        }
+
+        // Step 4: Process each order
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        for (let i = 0; i < ordersToProcess.length; i++) {
+            const order = ordersToProcess[i];
+            const orderNumber = order.number || order.sales_record_number || order.id;
+            
+            console.log(`\n🔄 Processing order ${i + 1}/${ordersToProcess.length}: ${orderNumber} (ID: ${order.id})`);
+            button.textContent = `Processing ${i + 1}/${ordersToProcess.length}...`;
+
+            try {
+                // Process order data to match the structure expected by form filling functions
+                console.log('🔍 Processing order data to match expected structure...');
+                const processedOrderData = processOrderDataForUSPS(order);
+                console.log('✅ Processed order data:', processedOrderData);
+                
+                // Fill form with processed order data
+                console.log('🔍 Filling form with order data...');
+                await fillFormWithOrderData(processedOrderData);
+
+                // Wait a moment for form to be fully processed
+                console.log('🔍 Waiting for form to be fully processed...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Click Get Rates button
+                console.log('🔍 Attempting to click Get Rates button...');
+                let ratesClicked = false;
+                let attempts = 0;
+                const maxAttempts = 5;
+                
+                while (!ratesClicked && attempts < maxAttempts) {
+                    attempts++;
+                    console.log(`🔍 Get Rates button attempt ${attempts}/${maxAttempts}...`);
+                    ratesClicked = clickGetRatesButton();
+                    
+                    if (!ratesClicked) {
+                        console.log(`⚠️ Get Rates button click failed, waiting 500ms before retry...`);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    } else {
+                        console.log('✅ Get Rates button clicked successfully');
+                    }
+                }
+                
+                if (!ratesClicked) {
+                    throw new Error('Failed to click Get Rates button after multiple attempts');
+                }
+
+                // Wait for rates to load (longer wait for rates to appear)
+                console.log('🔍 Waiting for rates to load...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                // Extract price from first available shipping option
+                console.log('🔍 Waiting for rates to load...');
+                const price = await waitForFirstAvailablePrice();
+
+                if (!price) {
+                    throw new Error('Could not find any shipping option price');
+                }
+
+                console.log(`✅ Extracted price for order ${orderNumber}: $${price}`);
+
+                // Update order with internal note
+                const internalNote = `"E-Price":${price}`;
+                console.log('🔍 Updating order with internal note:', internalNote);
+
+                const updateResponse = await chrome.runtime.sendMessage({
+                    action: 'updateVeeqoOrder_InternalNote',
+                    apiKey: apiKey,
+                    orderId: order.id,
+                    internalNote: internalNote
+                });
+
+                if (!updateResponse || !updateResponse.success) {
+                    throw new Error('Failed to update order: ' + (updateResponse?.error || 'Unknown error'));
+                }
+
+                console.log(`✅ Order ${orderNumber} updated successfully with E-price: $${price}`);
+                successCount++;
+
+                // Wait a bit before processing next order
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+            } catch (error) {
+                console.error(`❌ Error processing order ${orderNumber}:`, error);
+                errorCount++;
+                errors.push(`${orderNumber}: ${error.message}`);
+            }
+        }
+
+        // Show summary
+        const summary = `✅ Processing Complete!\n\n` +
+                       `Total Orders: ${allOrders.length}\n` +
+                       `Processed: ${successCount}\n` +
+                       `Errors: ${errorCount}\n` +
+                       (errors.length > 0 ? `\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ''}` : '');
+
+        alert(summary);
+        console.log('📊 Final Summary:', { total: allOrders.length, success: successCount, errors: errorCount });
+
+        // Restore button state
+        button.textContent = originalText;
+        button.disabled = false;
+        button.style.backgroundColor = '#007bff';
+
+    } catch (error) {
+        console.error('❌ Error updating USPS E-price:', error);
+        alert('❌ Error: ' + error.message);
+
+        // Restore button state
+        const button = document.getElementById('update-usps-eprice-btn');
+        if (button) {
+            button.textContent = 'Update USPS E-price';
+            button.disabled = false;
+            button.style.backgroundColor = '#007bff';
+        }
+    }
+}
+
+/**
+ * Process order data from API to match the structure expected by form filling functions
+ * @param {Object} apiOrder - Raw order data from Veeqo API
+ * @returns {Object} Processed order data with correct structure
+ */
+function processOrderDataForUSPS(apiOrder) {
+    // Extract allocation_package from allocations array
+    let allocationPackage = null;
+    if (apiOrder.allocations && apiOrder.allocations.length > 0) {
+        allocationPackage = apiOrder.allocations[0].allocation_package;
+    }
+    
+    // Get SKU codes for reference_number formatting
+    const skuCodes = apiOrder.line_items?.map(item => item.sellable?.sku_code).filter(Boolean) || [];
+    const quantityToShip = '1'; // Default, can be extracted from HTML if needed
+    
+    // Format reference_number as: {quantity_to_ship} x {sku_codes}
+    const formattedReferenceNumber = skuCodes.length > 0 
+        ? `${quantityToShip} x ${skuCodes.join(', ')}`
+        : quantityToShip;
+    
+    // Extract customer note if available
+    let customerNote = null;
+    if (apiOrder.customer_note && apiOrder.customer_note.text) {
+        customerNote = apiOrder.customer_note.text;
+    }
+    
+    // Create the processed data structure matching what processOrderData creates
+    return {
+        deliver_to: apiOrder.delivery_method?.name || null,
+        sku_codes: skuCodes,
+        allocation_package: allocationPackage,
+        line_items: apiOrder.line_items || [],
+        shipping_addresses: apiOrder.deliver_to || null, // This is the key - deliver_to becomes shipping_addresses
+        customer: apiOrder.customer || null,
+        customer_note: customerNote,
+        sales_record_number: apiOrder.sales_record_number || apiOrder.number,
+        reference_number: formattedReferenceNumber,
+        id: apiOrder.id,
+        number: apiOrder.number || null,
+        status: apiOrder.status || null,
+        total_price: apiOrder.total_price || null,
+        currency_code: apiOrder.currency_code || null,
+        veeqo_shipping_rate: null,
+        quantity_to_ship: quantityToShip
+    };
+}
+
+/**
+ * Fill form with order data (clears and fills fresh) - Direct synchronous approach
+ * @param {Object} orderData - Order data to fill
+ */
+async function fillFormWithOrderData(orderData) {
+    // Reset auto-fill flags to allow filling again
+    autoFillCompleted = false;
+    autoFillInProgress = false;
+    
+    console.log('🔄 Reset auto-fill flags, ready to fill form for new order');
+
+    // Clear existing form data first
+    const fieldsToClear = [
+        USPS_FORM_FIELDS.firstName,
+        USPS_FORM_FIELDS.lastName,
+        USPS_FORM_FIELDS.company,
+        USPS_FORM_FIELDS.streetAddress1,
+        'address2AptSuite',
+        USPS_FORM_FIELDS.city,
+        USPS_FORM_FIELDS.state,
+        USPS_FORM_FIELDS.zipCode,
+        USPS_FORM_FIELDS.referenceNumber,
+        USPS_FORM_FIELDS.referenceNumber2
+    ];
+
+    fieldsToClear.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.value = '';
+            triggerInputEvent(field);
+        }
+    });
+
+    // Also clear package fields if they exist
+    const packageFields = ['weightLbs', 'weight', 'length', 'width', 'height', 'packageTypeDropdown'];
+    packageFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            if (field.tagName === 'SELECT') {
+                field.selectedIndex = 0;
+            } else {
+                field.value = '';
+            }
+            triggerInputEvent(field);
+        }
+    });
+
+    // Wait a moment for fields to clear
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Fill form fields directly and synchronously
+    console.log('🔍 Filling form fields directly...');
+    
+    // Fill customer information
+    fillCustomerInformation(orderData);
+    
+    // Fill shipping address
+    fillShippingAddress(orderData);
+    
+    // Fill reference numbers
+    fillReferenceNumbers(orderData);
+    
+    // Fill package information directly (synchronously)
+    const allocationPackage = orderData.allocation_package;
+    if (allocationPackage) {
+        console.log('🔍 Filling package information...');
+        
+        // Fill weight
+        const weightFieldIds = ['weightLbs', 'weight', 'packageWeight', 'weight-lbs'];
+        for (const fieldId of weightFieldIds) {
+            const weightField = document.getElementById(fieldId);
+            if (weightField && allocationPackage.weight) {
+                const weightOz = parseFloat(allocationPackage.weight) || 0;
+                const weightLbs = Math.floor(weightOz / 16);
+                weightField.value = weightLbs.toString();
+                triggerInputEvent(weightField);
+                console.log('✅ Filled Weight:', weightLbs, 'lbs');
+                break;
+            }
+        }
+        
+        // Fill dimensions
+        const dimensionFields = [
+            { key: 'depth', ids: ['length', 'packageLength', 'length-in', 'lengthIn'] },
+            { key: 'width', ids: ['width', 'packageWidth', 'width-in', 'widthIn'] },
+            { key: 'height', ids: ['height', 'packageHeight', 'height-in', 'heightIn'] }
+        ];
+        
+        dimensionFields.forEach(({ key, ids }) => {
+            for (const fieldId of ids) {
+                const field = document.getElementById(fieldId);
+                if (field && allocationPackage[key]) {
+                    const value = parseFloat(allocationPackage[key]) || 0;
+                    field.value = value.toString();
+                    triggerInputEvent(field);
+                    if (key === 'depth') {
+                        console.log('✅ Filled Length:', value);
+                    } else {
+                        console.log(`✅ Filled ${key}:`, value);
+                    }
+                    break;
+                }
+            }
+        });
+    } else {
+        console.log('⚠️ No allocation_package data found in order');
+    }
+    
+    // Select package type (if needed)
+    try {
+        await selectPackageType();
+        await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (error) {
+        console.log('⚠️ Package type selection failed, continuing anyway:', error);
+    }
+
+    // Wait a moment for all fields to be processed
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Verify form is filled
+    const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
+    const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+    
+    if (!firstNameField || !firstNameField.value) {
+        throw new Error('First name field is not filled');
+    }
+    
+    if (!lastNameField || !lastNameField.value) {
+        throw new Error('Last name field is not filled');
+    }
+    
+    console.log('✅ Form filled successfully');
+    console.log('✅ First Name:', firstNameField.value);
+    console.log('✅ Last Name:', lastNameField.value);
+}
+
+/**
+ * Fetch all orders from Veeqo API with pagination
+ * @param {string} apiKey - Veeqo API key
+ * @param {Object} baseParams - Base parameters for the API request
+ * @returns {Promise<Array>} Array of all orders from all pages
+ */
+async function fetchAllOrdersWithPagination(apiKey, baseParams = {}) {
+    const allOrders = [];
+    let page = 1;
+    let hasMorePages = true;
+    
+    console.log('🔍 Starting paginated order fetch...');
+    
+    while (hasMorePages) {
+        try {
+            console.log(`🔍 Fetching page ${page}...`);
+            
+            const response = await chrome.runtime.sendMessage({
+                action: 'fetchVeeqoOrders',
+                apiKey: apiKey,
+                params: {
+                    ...baseParams,
+                    page: page,
+                    page_size: 100
+                }
+            });
+            
+            if (!response || !response.success) {
+                console.error(`❌ Failed to fetch page ${page}:`, response?.error);
+                break;
+            }
+            
+            // Parse response data
+            let pageOrders = [];
+            if (Array.isArray(response.data)) {
+                pageOrders = response.data;
+            } else if (response.data?.orders) {
+                pageOrders = response.data.orders;
+            } else if (response.data?.results) {
+                pageOrders = response.data.results;
+            } else if (response.data?.data) {
+                pageOrders = Array.isArray(response.data.data) ? response.data.data : response.data.data.orders || [];
+            }
+            
+            console.log(`✅ Page ${page}: Fetched ${pageOrders.length} orders`);
+            
+            if (pageOrders.length === 0) {
+                // No more orders, stop pagination
+                hasMorePages = false;
+                console.log(`✅ Reached end of orders at page ${page}`);
+            } else {
+                // Add orders from this page to the total
+                allOrders.push(...pageOrders);
+                page++;
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error fetching page ${page}:`, error);
+            break;
+        }
+    }
+    
+    console.log(`✅ Pagination complete: Fetched ${allOrders.length} total orders from ${page - 1} page(s)`);
+    return allOrders;
+}
+
+/**
+ * Fetch order data from form fields and Veeqo API
+ * @returns {Promise<Object|null>} Order data or null if not found
+ */
+async function fetchOrderDataFromForm() {
+    try {
+        // Get order number from referenceNumber field
+        const referenceNumberField = document.getElementById(USPS_FORM_FIELDS.referenceNumber);
+        if (!referenceNumberField || !referenceNumberField.value) {
+            console.log('❌ Reference number field is empty');
+            return null;
+        }
+
+        const orderNumber = referenceNumberField.value.trim();
+        console.log('🔍 Found order number in form:', orderNumber);
+
+        if (!orderNumber) {
+            return null;
+        }
+
+        // Get API key
+        const apiKey = await new Promise((resolve, reject) => {
+            chrome.storage.sync.get(['veeqoApiKey'], (result) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else if (result.veeqoApiKey) {
+                    resolve(result.veeqoApiKey);
+                } else {
+                    reject(new Error('Veeqo API key not configured'));
+                }
+            });
+        });
+
+        // Fetch orders from Veeqo API to find the order (with pagination)
+        console.log('🔍 Fetching orders from Veeqo API to find order:', orderNumber);
+        const orders = await fetchAllOrdersWithPagination(apiKey, {
+            page_size: 100,
+            status: 'awaiting_fulfillment'
+        });
+        
+        console.log(`🔍 Fetched ${orders.length} orders from API`);
+
+        // Find the order by number or sales_record_number
+        const order = orders.find(o => 
+            o.number === orderNumber || 
+            o.sales_record_number === orderNumber ||
+            String(o.id) === orderNumber
+        );
+
+        if (!order) {
+            console.log('❌ Order not found in fetched orders');
+            // Try fetching by ID if orderNumber is numeric
+            if (/^\d+$/.test(orderNumber)) {
+                console.log('🔍 Trying to fetch order by ID:', orderNumber);
+                const orderByIdResponse = await chrome.runtime.sendMessage({
+                    action: 'fetchOrderById',
+                    apiKey: apiKey,
+                    orderId: parseInt(orderNumber)
+                });
+
+                if (orderByIdResponse && orderByIdResponse.success) {
+                    console.log('✅ Found order by ID');
+                    return orderByIdResponse.data;
+                }
+            }
+            return null;
+        }
+
+        console.log('✅ Found order in API response:', order.id);
+        return order;
+
+    } catch (error) {
+        console.error('❌ Error fetching order data from form:', error);
+        return null;
+    }
+}
+
+/**
+ * Ensure form is filled with order data
+ * @param {Object} orderData - Order data to fill
+ */
+async function ensureFormFilled(orderData) {
+    // Check if form fields are already filled
+    const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
+    const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+    
+    if (firstNameField && firstNameField.value && lastNameField && lastNameField.value) {
+        console.log('✅ Form already filled');
+        return;
+    }
+
+    // Form not filled, trigger auto-fill
+    console.log('🔍 Form not filled, triggering auto-fill...');
+    autoFillUSPSForm(orderData);
+    
+    // Wait for form to be filled (max 10 seconds)
+    let attempts = 0;
+    const maxAttempts = 50;
+    
+    while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        if (firstNameField && firstNameField.value && lastNameField && lastNameField.value) {
+            console.log('✅ Form filled successfully');
+            return;
+        }
+        
+        attempts++;
+    }
+    
+    throw new Error('Form could not be filled within timeout');
+}
+
+/**
+ * Wait for rate card to appear and extract price
+ * @param {string} rateId - The ID of the rate card element
+ * @returns {Promise<string|null>} The extracted price or null if not found
+ */
+async function waitForRateAndExtractPrice(rateId) {
+    const maxAttempts = 50; // Wait up to 10 seconds (50 * 200ms)
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+        // Look for the rate card element
+        const rateCard = document.getElementById(rateId);
+        
+        if (rateCard) {
+            console.log('✅ Found rate card:', rateId);
+            
+            // Extract price from the card
+            const price = extractPriceFromCard(rateCard);
+            if (price) {
+                return price;
+            }
+            
+            console.log('⚠️ Rate card found but could not extract price');
+        }
+        
+        // Wait before next attempt
+        await new Promise(resolve => setTimeout(resolve, 200));
+        attempts++;
+    }
+    
+    console.log('❌ Rate card not found after max attempts');
+    return null;
+}
+
+/**
+ * Extract price from a shipping option card
+ * @param {HTMLElement} card - The shipping option card element
+ * @returns {string|null} The extracted price or null if not found
+ */
+function extractPriceFromCard(card) {
+    // Try multiple selectors to find the price element
+    const priceSelectors = [
+        '.text-end p.fs-12.fw-bold.text-primary',
+        '.text-end p.text-primary',
+        '.text-end p.fw-bold',
+        '.col-md-4 p.fs-12.fw-bold.text-primary',
+        '.col-md-4 p.fs-12.fw-bold',
+        '.col-md-4 p'
+    ];
+    
+    let priceElement = null;
+    for (const selector of priceSelectors) {
+        priceElement = card.querySelector(selector);
+        if (priceElement) {
+            console.log('✅ Found price element with selector:', selector);
+            break;
+        }
+    }
+    
+    if (priceElement) {
+        const priceText = priceElement.textContent.trim();
+        console.log('🔍 Found price text:', priceText);
+        
+        // Extract numeric value (remove $ and any whitespace)
+        const priceMatch = priceText.match(/\$?\s*([\d.]+)/);
+        if (priceMatch && priceMatch[1]) {
+            const price = priceMatch[1];
+            console.log('✅ Extracted price:', price);
+            return price;
+        }
+    }
+    
+    // Alternative: search for any price text in the card (look for $X.XX pattern)
+    const allText = card.textContent;
+    const priceMatch = allText.match(/\$\s*([\d.]+)/);
+    if (priceMatch && priceMatch[1]) {
+        const price = priceMatch[1];
+        console.log('✅ Extracted price (alternative method):', price);
+        return price;
+    }
+    
+    return null;
+}
+
+/**
+ * Wait for shipping options section and extract price from first available option
+ * @returns {Promise<string|null>} The extracted price or null if not found
+ */
+async function waitForFirstAvailablePrice() {
+    const maxAttempts = 50; // Wait up to 10 seconds (50 * 200ms)
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+        // Look for the shipping options section
+        const shippingSection = document.querySelector('section[aria-label="shipping-options"]');
+        
+        if (shippingSection) {
+            console.log('✅ Found shipping options section');
+            
+            // Find all shipping option cards (divs with class containing "card")
+            const rateCards = shippingSection.querySelectorAll('div.card, div[class*="card"]');
+            console.log(`🔍 Found ${rateCards.length} shipping option cards`);
+            
+            // Get the first card in the list
+            if (rateCards.length > 0) {
+                const firstCard = rateCards[0];
+                console.log(`🔍 Using first card (${firstCard.id || 'no-id'}):`, firstCard);
+                
+                const price = extractPriceFromCard(firstCard);
+                if (price) {
+                    console.log(`✅ Extracted price from first card:`, price);
+                    return price;
+                } else {
+                    console.log('⚠️ First card found but could not extract price');
+                }
+            } else {
+                console.log('⚠️ No shipping option cards found');
+            }
+        }
+        
+        // Wait before next attempt
+        await new Promise(resolve => setTimeout(resolve, 200));
+        attempts++;
+    }
+    
+    console.log('❌ Shipping options section not found after max attempts');
+    return null;
 }
 
 // Export functions for use in other scripts

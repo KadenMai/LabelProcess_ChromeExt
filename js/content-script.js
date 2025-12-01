@@ -554,6 +554,132 @@ async function showAllUSPSButtons() {
 
 
 /**
+ * Display internal notes (employee_notes) in specified column for orders that have them
+ * @param {Object} orderDataMap - Map of order numbers to order data
+ * @param {number} columnNumber - Column number to display notes in (1-based)
+ */
+async function displayInternalNotes(orderDataMap, columnNumber) {
+    try {
+        const columnIndex = columnNumber - 1; // Convert to 0-based index
+        console.log(`🔍 Displaying internal notes in column ${columnNumber} (index ${columnIndex})...`);
+        
+        // Get API key to fetch full order details if needed
+        const apiKey = await getApiKey();
+        if (!apiKey) {
+            console.log('⚠️ API key not available, skipping internal notes display');
+            return;
+        }
+        
+        const table = document.getElementById('allocations-table');
+        if (!table) {
+            console.log('⚠️ Allocations table not found');
+            return;
+        }
+        
+        const tbody = table.querySelector('tbody');
+        if (!tbody) {
+            console.log('⚠️ Table tbody not found');
+            return;
+        }
+        
+        const rows = tbody.querySelectorAll('tr');
+        console.log(`🔍 Processing ${rows.length} rows for internal notes`);
+        
+        let notesDisplayed = 0;
+        
+        // Process each row
+        for (const row of rows) {
+            // Skip header rows
+            const headerCells = row.querySelectorAll('th[role="columnheader"]');
+            if (headerCells.length > 0) {
+                continue;
+            }
+            
+            // Extract order number from row
+            const orderNumber = extractOrderNumberFromRow(row);
+            if (!orderNumber) {
+                continue;
+            }
+            
+            // Get order data
+            const orderData = orderDataMap[orderNumber];
+            if (!orderData || !orderData.id) {
+                continue;
+            }
+            
+            let employeeNotes = null;
+            
+            // Check if employee_notes are already in orderData (from fetchAllOrderData)
+            // The API response might include employee_notes, but we need to fetch full details
+            // Fetch full order details to get employee_notes
+            try {
+                const orderResponse = await chrome.runtime.sendMessage({
+                    action: 'fetchOrderById',
+                    apiKey: apiKey,
+                    orderId: orderData.id
+                });
+                
+                if (orderResponse && orderResponse.success && orderResponse.data) {
+                    const fullOrder = orderResponse.data;
+                    employeeNotes = fullOrder.employee_notes || [];
+                }
+            } catch (error) {
+                console.error(`❌ Error fetching order details for ${orderNumber}:`, error);
+                continue;
+            }
+            
+            if (employeeNotes && employeeNotes.length > 0) {
+                // Get the last employee note
+                const lastNote = employeeNotes[employeeNotes.length - 1];
+                const noteText = lastNote?.text || '';
+                
+                if (noteText.trim()) {
+                    // Get the specified column
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length >= columnNumber) {
+                        const targetCell = cells[columnIndex]; // Column (0-indexed)
+                        
+                        // Check if internal note already displayed
+                        let noteDisplay = targetCell.querySelector('.internal-note-display');
+                        
+                        if (!noteDisplay) {
+                            // Create display element
+                            noteDisplay = document.createElement('div');
+                            noteDisplay.className = 'internal-note-display';
+                            noteDisplay.style.cssText = `
+                                font-size: 12px;
+                                color: #666;
+                                padding: 4px 8px;
+                                background: #f0f0f0;
+                                border-radius: 4px;
+                                margin-top: 4px;
+                                max-width: 200px;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+                                cursor: help;
+                            `;
+                            targetCell.appendChild(noteDisplay);
+                        }
+                        
+                        // Update note text
+                        noteDisplay.textContent = noteText;
+                        noteDisplay.title = noteText; // Show full text on hover
+                        notesDisplayed++;
+                        console.log(`✅ Displayed internal note for order ${orderNumber} in column ${columnNumber}: ${noteText.substring(0, 50)}...`);
+                    }
+                }
+            }
+        }
+        
+        console.log(`✅ Displayed ${notesDisplayed} internal notes in column ${columnNumber}`);
+        
+    } catch (error) {
+        console.error('❌ Error displaying internal notes:', error);
+    }
+}
+
+/**
  * Create Print Note buttons for orders with customer notes
  */
 async function createPrintNoteButtons() {
@@ -842,6 +968,8 @@ async function handleFillOrderDataClick() {
         // Show all USPS buttons now that data is loaded
         showAllUSPSButtons();
         
+        // Display internal notes in column 5
+        await displayInternalNotes(orderDataMap, 5);
         
         // Restore button state
         button.textContent = originalText;
@@ -966,23 +1094,14 @@ async function loadAmazonOrderNote() {
             throw new Error('Veeqo API key not configured. Please set it in extension settings.');
         }
         
-        // Get all Veeqo orders to map Amazon order IDs
+        // Get all Veeqo orders to map Amazon order IDs (with pagination)
         console.log('🔄 Fetching Veeqo orders for mapping...');
-        const allOrdersResponse = await chrome.runtime.sendMessage({
-            action: 'fetchVeeqoOrders',
-            apiKey: apiKey,
-            params: {
-                page_size: 100,
-                status: 'awaiting_fulfillment'
-            }
+        const veeqoOrders = await fetchAllOrdersWithPagination(apiKey, {
+            page_size: 100,
+            status: 'awaiting_fulfillment'
         });
         
-        if (!allOrdersResponse || !allOrdersResponse.success) {
-            throw new Error('Failed to fetch Veeqo orders: ' + (allOrdersResponse?.error || 'Unknown error'));
-        }
-        
-        const veeqoOrders = allOrdersResponse.data || [];
-        console.log(`📋 Fetched ${veeqoOrders.length} Veeqo orders`);
+        console.log(`📋 Fetched ${veeqoOrders.length} Veeqo orders from all pages`);
         
         // Create mapping from Amazon order ID to Veeqo order
         const orderMapping = createOrderMapping(amazonOrders, veeqoOrders);
@@ -1001,7 +1120,7 @@ async function loadAmazonOrderNote() {
                     console.log(`🔄 Updating order ${veeqoOrder.id} with delivery instructions: "${amazonOrder.deliveryInstructions}"`);
                     
                     const updateResponse = await chrome.runtime.sendMessage({
-                        action: 'updateVeeqoOrder',
+                        action: 'updateVeeqoOrder_CustomerNote',
                         apiKey: apiKey,
                         orderId: veeqoOrder.id,
                         customerNote: amazonOrder.deliveryInstructions
@@ -1213,6 +1332,72 @@ function extractTableDataForOrders(orderNumbers) {
 }
 
 /**
+ * Fetch all orders from Veeqo API with pagination
+ * @param {string} apiKey - Veeqo API key
+ * @param {Object} baseParams - Base parameters for the API request
+ * @returns {Promise<Array>} Array of all orders from all pages
+ */
+async function fetchAllOrdersWithPagination(apiKey, baseParams = {}) {
+    const allOrders = [];
+    let page = 1;
+    let hasMorePages = true;
+    
+    console.log('🔍 Starting paginated order fetch...');
+    
+    while (hasMorePages) {
+        try {
+            console.log(`🔍 Fetching page ${page}...`);
+            
+            const response = await chrome.runtime.sendMessage({
+                action: 'fetchVeeqoOrders',
+                apiKey: apiKey,
+                params: {
+                    ...baseParams,
+                    page: page,
+                    page_size: 100
+                }
+            });
+            
+            if (!response || !response.success) {
+                console.error(`❌ Failed to fetch page ${page}:`, response?.error);
+                break;
+            }
+            
+            // Parse response data
+            let pageOrders = [];
+            if (Array.isArray(response.data)) {
+                pageOrders = response.data;
+            } else if (response.data?.orders) {
+                pageOrders = response.data.orders;
+            } else if (response.data?.results) {
+                pageOrders = response.data.results;
+            } else if (response.data?.data) {
+                pageOrders = Array.isArray(response.data.data) ? response.data.data : response.data.data.orders || [];
+            }
+            
+            console.log(`✅ Page ${page}: Fetched ${pageOrders.length} orders`);
+            
+            if (pageOrders.length === 0) {
+                // No more orders, stop pagination
+                hasMorePages = false;
+                console.log(`✅ Reached end of orders at page ${page}`);
+            } else {
+                // Add orders from this page to the total
+                allOrders.push(...pageOrders);
+                page++;
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error fetching page ${page}:`, error);
+            break;
+        }
+    }
+    
+    console.log(`✅ Pagination complete: Fetched ${allOrders.length} total orders from ${page - 1} page(s)`);
+    return allOrders;
+}
+
+/**
  * Fetch order data for all order numbers
  * @param {Array<string>} orderNumbers - Array of order numbers from the table
  * @returns {Promise<Object>} Object with order numbers as keys and order data as values
@@ -1232,73 +1417,15 @@ async function fetchAllOrderData(orderNumbers) {
             throw new Error('Veeqo API key not configured. Please set it in extension settings.');
         }
         
-        console.log(`Fetching all orders from API...`);
+        console.log(`Fetching all orders from API with pagination...`);
         
-        // Add timeout to the API call
-        const apiCallPromise = chrome.runtime.sendMessage({
-            action: 'fetchVeeqoOrders',
-            apiKey: apiKey,
-            params: {
-                page_size: 100,
-                status: 'awaiting_fulfillment'
-            }
+        // Fetch all orders with pagination
+        const allOrders = await fetchAllOrdersWithPagination(apiKey, {
+            page_size: 100,
+            status: 'awaiting_fulfillment'
         });
         
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('API call timed out after 30 seconds')), 30000);
-        });
-        
-        // Race between API call and timeout
-        const allOrdersResponse = await Promise.race([apiCallPromise, timeoutPromise]);
-        
-        // Log the complete API response for debugging
-        console.log('🔍 Complete API Response:', allOrdersResponse);
-        console.log('🔍 API Response Type:', typeof allOrdersResponse);
-        console.log('🔍 API Response Success:', allOrdersResponse?.success);
-        console.log('🔍 API Response Data:', allOrdersResponse?.data);
-        console.log('🔍 API Response Error:', allOrdersResponse?.error);
-        
-        if (!allOrdersResponse || !allOrdersResponse.success) {
-            console.error('❌ API Request Failed:', allOrdersResponse);
-            throw new Error('Failed to fetch orders from API: ' + (allOrdersResponse?.error || 'Unknown error'));
-        }
-        
-        // Log the exact structure of the API response data
-        console.log('🔍 API Response Data Structure:');
-        console.log('🔍 allOrdersResponse.data:', allOrdersResponse.data);
-        console.log('🔍 allOrdersResponse.data type:', typeof allOrdersResponse.data);
-        console.log('🔍 allOrdersResponse.data keys:', Object.keys(allOrdersResponse.data || {}));
-        
-        // Check different possible response structures
-        let allOrders = [];
-        
-        if (Array.isArray(allOrdersResponse.data)) {
-            // Veeqo API returns direct array structure: [...]
-            allOrders = allOrdersResponse.data;
-            console.log('✅ Found orders as direct array in data (Veeqo API format)');
-        } else if (allOrdersResponse.data.orders) {
-            // Standard structure: { orders: [...] }
-            allOrders = allOrdersResponse.data.orders;
-            console.log('✅ Found orders in data.orders');
-        } else if (allOrdersResponse.data.results) {
-            // Alternative structure: { results: [...] }
-            allOrders = allOrdersResponse.data.results;
-            console.log('✅ Found orders in data.results');
-        } else if (allOrdersResponse.data.data) {
-            // Nested structure: { data: { orders: [...] } }
-            allOrders = allOrdersResponse.data.data.orders || allOrdersResponse.data.data;
-            console.log('✅ Found orders in data.data');
-        } else {
-            // Try to find any array in the response
-            const dataKeys = Object.keys(allOrdersResponse.data || {});
-            for (const key of dataKeys) {
-                if (Array.isArray(allOrdersResponse.data[key])) {
-                    allOrders = allOrdersResponse.data[key];
-                    console.log(`✅ Found orders in data.${key}`);
-                    break;
-                }
-            }
-        }
+        console.log(`✅ Fetched ${allOrders.length} total orders from all pages`);
         
         console.log(`📊 Fetched ${allOrders.length} orders from API`);
         console.log('📊 Orders Array:', allOrders);

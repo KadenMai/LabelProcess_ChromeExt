@@ -37,8 +37,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             handleFetchOrderById(request, sender, sendResponse);
             return true; // Keep message channel open for async response
             
-        case 'updateVeeqoOrder':
-            handleUpdateVeeqoOrder(request, sender, sendResponse);
+        case 'updateVeeqoOrder_CustomerNote':
+            handleUpdateVeeqoOrder_CustomerNote(request, sender, sendResponse);
+            return true; // Keep message channel open for async response
+            
+        case 'updateVeeqoOrder_InternalNote':
+            handleUpdateVeeqoOrder_InternalNote(request, sender, sendResponse);
             return true; // Keep message channel open for async response
             
         case 'injectUSPSAutoFill':
@@ -369,7 +373,7 @@ async function handleFetchOrderById(request, sender, sendResponse) {
 /**
  * Handle updating Veeqo order
  */
-async function handleUpdateVeeqoOrder(request, sender, sendResponse) {
+async function handleUpdateVeeqoOrder_CustomerNote(request, sender, sendResponse) {
     try {
         const { apiKey, orderId, customerNote } = request;
         console.log('Updating Veeqo order:', orderId, 'with customer note:', customerNote);
@@ -390,7 +394,7 @@ async function handleUpdateVeeqoOrder(request, sender, sendResponse) {
         }
         
         // Skip API proxy to avoid CORS errors - use direct API call
-        console.log('🔍 Background: Using direct API call for updateVeeqoOrder (skipping proxy to avoid CORS)...');
+        console.log('🔍 Background: Using direct API call for updateVeeqoOrder_CustomerNote (skipping proxy to avoid CORS)...');
         const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
             method: 'PUT',
             headers: {
@@ -402,6 +406,65 @@ async function handleUpdateVeeqoOrder(request, sender, sendResponse) {
                     customer_note_attributes: {
                         text: customerNote
                     }
+                }
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Order updated successfully via direct API call');
+            sendResponse({ success: true, data: data });
+        } else {
+            const errorText = await response.text();
+            console.error('Failed to update order:', response.status, errorText);
+            sendResponse({ 
+                success: false, 
+                error: `API request failed: ${response.status} ${errorText}` 
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error updating Veeqo order:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+/**
+ * Handle updating Veeqo order internal note
+ */
+async function handleUpdateVeeqoOrder_InternalNote(request, sender, sendResponse) {
+    try {
+        const { apiKey, orderId, internalNote } = request;
+        console.log('Updating Veeqo order:', orderId, 'with internal note:', internalNote);
+        
+        if (!apiKey) {
+            sendResponse({ success: false, error: 'API key is required' });
+            return;
+        }
+        
+        if (!orderId) {
+            sendResponse({ success: false, error: 'Order ID is required' });
+            return;
+        }
+        
+        if (!internalNote) {
+            sendResponse({ success: false, error: 'Internal note is required' });
+            return;
+        }
+        
+        // Skip API proxy to avoid CORS errors - use direct API call
+        console.log('🔍 Background: Using direct API call for updateVeeqoOrder_InternalNote (skipping proxy to avoid CORS)...');
+        const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
+            method: 'PUT',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                order: {
+                    employee_notes_attributes: [
+                        { text: internalNote }
+                    ]
                 }
             })
         });

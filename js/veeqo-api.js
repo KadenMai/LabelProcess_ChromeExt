@@ -118,15 +118,6 @@ async function fetchOrderById(orderId) {
 }
 
 /**
- * Fetch order allocations
- * @param {number} orderId - Order ID
- * @returns {Promise<Object>} Allocations data
- */
-async function fetchOrderAllocations(orderId) {
-    return await makeVeeqoApiRequest(`/orders/${orderId}/allocations`);
-}
-
-/**
  * Get order details for the current page
  * This function tries to match orders with the current allocations table
  * @returns {Promise<Array>} Array of order details
@@ -386,7 +377,6 @@ if (typeof module !== 'undefined' && module.exports) {
         makeVeeqoApiRequest,
         fetchOrders,
         fetchOrderById,
-        fetchOrderAllocations,
         getCurrentPageOrderDetails,
         testApiConnection,
         getApiKeyStatus
