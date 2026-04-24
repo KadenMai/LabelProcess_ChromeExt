@@ -15,14 +15,10 @@ A Chrome extension that adds a USPS button to the Veeqo allocations table for qu
 ## Installation
 
 1. Download or clone this repository
-2. **Fix Icons (if needed)**: If you get an icon loading error:
-   - Open `icon-generator.html` in your browser
-   - Right-click each icon and save as `icon16.png`, `icon48.png`, `icon128.png` in the `icons/` folder
-   - Or use the extension without icons (it will work fine)
-3. Open Chrome and go to `chrome://extensions/`
-4. Enable "Developer mode" in the top right
-5. Click "Load unpacked" and select the extension folder
-6. The extension will be installed and ready to use
+2. Open Chrome and go to `chrome://extensions/`
+3. Enable "Developer mode" in the top right
+4. Click "Load unpacked" and select the extension folder
+5. The extension will be installed and ready to use
 
 ## Usage
 
@@ -53,15 +49,19 @@ A Chrome extension that adds a USPS button to the Veeqo allocations table for qu
 ├── popup.html                 # Extension popup (settings)
 ├── options.html               # Advanced settings page
 ├── js/
+│   ├── error-handler.js       # Content-script error handling
+│   ├── extension-recovery.js  # Recovery after extension context invalidation
 │   ├── usps-functions.js      # USPS-related functions
-│   ├── veeqo-api.js          # Veeqo API integration
+│   ├── veeqo-api.js           # Veeqo API integration
+│   ├── api-proxy.js           # API proxy helpers (Veeqo page)
+│   ├── print-functions.js     # Print delivery instructions
 │   ├── content-script.js      # Main content script
+│   ├── usps-autofill.js       # USPS Label Manager autofill
 │   ├── background.js          # Background service worker
-│   ├── popup.js              # Popup functionality
-│   └── options.js            # Options page functionality
+│   ├── popup.js               # Popup functionality
+│   └── options.js             # Options page functionality
 ├── css/
 │   └── usps-button.css        # Button styling
-├── icons/                     # Extension icons (16px, 48px, 128px)
 └── README.md                  # This file
 ```
 
@@ -69,7 +69,7 @@ A Chrome extension that adds a USPS button to the Veeqo allocations table for qu
 
 - **Manifest Version**: 3 (Chrome Extension Manifest V3)
 - **Permissions**: activeTab, tabs, storage
-- **Content Scripts**: Injected on `*://app.veeqo.com/*`
+- **Content Scripts**: Veeqo (`*://app.veeqo.com/*`), USPS Label Manager (`*://cnsb.usps.com/*`)
 - **Target Table**: `#allocations-table`
 - **Target Column**: 3rd column (index 2)
 - **USPS URL**: `https://cnsb.usps.com/label-manager/new-label/quick`
