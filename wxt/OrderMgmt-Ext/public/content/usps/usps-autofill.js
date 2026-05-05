@@ -47,6 +47,44 @@ function getFormInputByName(name) {
     return nodes && nodes.length > 0 ? nodes[0] : null;
 }
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getShippingAddressFromOrder(orderData) {
+    return orderData.shipping_addresses || orderData.deliver_to || {};
+}
+
+/**
+ * Wait until USPS address fields are filled (or timeout).
+ * This avoids clicking "Get Rates" before USPS finishes filling city/state/zip.
+ */
+async function waitForAddressFieldsFilled(shippingAddress, timeoutMs = 12000) {
+    const deadline = Date.now() + timeoutMs;
+    const expectedZip = ((shippingAddress.zip || '') + '').substring(0, 5);
+
+    const streetEl = document.getElementById(USPS_FORM_FIELDS.streetAddress1);
+    const cityEl = document.getElementById(USPS_FORM_FIELDS.city);
+    const stateEl = document.getElementById(USPS_FORM_FIELDS.state);
+    const zipEl = document.getElementById(USPS_FORM_FIELDS.zipCode);
+
+    while (Date.now() < deadline) {
+        const street = streetEl?.value?.trim() || '';
+        const city = cityEl?.value?.trim() || '';
+        const state = stateEl?.value?.trim() || '';
+        const zip = zipEl?.value?.trim() || '';
+
+        const zipOk = expectedZip ? zip.startsWith(expectedZip) : zip.length >= 5;
+        const ok = street.length > 0 && city.length > 0 && state.length > 0 && zipOk;
+
+        if (ok) return true;
+        await sleep(200);
+    }
+
+    console.log('⚠️ Address fields not fully filled before timeout; continuing anyway');
+    return false;
+}
+
 /**
  * Auto-fill USPS form with order data
  * @param {Object} orderData - Order data from Veeqo API
@@ -80,8 +118,9 @@ function autoFillUSPSForm(orderData) {
         // Fill customer information
         fillCustomerInformation(orderData);
         
-        // Fill shipping address
-        fillShippingAddress(orderData);
+        // Fill shipping address (async suggestions + state/zip fill)
+        const shippingAddress = getShippingAddressFromOrder(orderData);
+        const addressFillPromise = fillShippingAddress(orderData);
         
         // Fill reference numbers
         fillReferenceNumbers(orderData);
@@ -96,7 +135,7 @@ function autoFillUSPSForm(orderData) {
         
         // Try package type selection first, then fill package information
         console.log('🔍 Attempting package type selection...');
-        selectPackageType().then((success) => {
+        selectPackageType().then(async (success) => {
             console.log('🔍 Package type selection result:', success);
             
             // Wait a moment for package type selection to take effect, then fill package info
@@ -107,12 +146,18 @@ function autoFillUSPSForm(orderData) {
                 try {
                     fillPackageInformationDirectly(orderData);
                     console.log('🔍 fillPackageInformationDirectly completed');
-                    
-                    // Click Get Rates button after package information is filled
-                    setTimeout(() => {
-                        console.log('🔍 Clicking Get Rates button after package info filled...');
+
+                    // Only click Get Rates after address is filled (USPS suggestions/state/zip can lag).
+                    (async () => {
+                        try {
+                            await addressFillPromise;
+                            await waitForAddressFieldsFilled(shippingAddress);
+                        } catch (e) {
+                            console.log('⚠️ Address wait failed (continuing):', e?.message || e);
+                        }
+                        console.log('🔍 Clicking Get Rates button after address + package info filled...');
                         clickGetRatesButton();
-                    }, 1000);
+                    })();
                 } catch (error) {
                     console.log('❌ Error in fillPackageInformationDirectly:', error);
                 }
@@ -124,12 +169,17 @@ function autoFillUSPSForm(orderData) {
             try {
                 fillPackageInformationDirectly(orderData);
                 console.log('🔍 fillPackageInformationDirectly completed');
-                
-                // Click Get Rates button after package information is filled
-                setTimeout(() => {
-                    console.log('🔍 Clicking Get Rates button after package info filled (fallback)...');
+
+                (async () => {
+                    try {
+                        await addressFillPromise;
+                        await waitForAddressFieldsFilled(shippingAddress);
+                    } catch (e) {
+                        console.log('⚠️ Address wait failed (continuing):', e?.message || e);
+                    }
+                    console.log('🔍 Clicking Get Rates button after address + package info filled (fallback)...');
                     clickGetRatesButton();
-                }, 1000);
+                })();
             } catch (error) {
                 console.log('❌ Error in fillPackageInformationDirectly:', error);
             }
@@ -331,24 +381,38 @@ function fillCustomerInformation(orderData) {
  * @param {Object} orderData - Order data containing shipping address
  */
 function fillShippingAddress(orderData) {
-    const shippingAddress = orderData.shipping_addresses || orderData.deliver_to || {};
+    const shippingAddress = getShippingAddressFromOrder(orderData);
     
     // Parse the address to separate main address from apt/suite
     const addressComponents = formatStreetAddress(shippingAddress);
     
     // Fill Street Address 1 (main address)
     const streetAddressField = document.getElementById(USPS_FORM_FIELDS.streetAddress1);
-    if (streetAddressField) {
-        streetAddressField.value = addressComponents.mainAddress;
-        triggerInputEvent(streetAddressField);
-        console.log('Filled Street Address 1:', addressComponents.mainAddress);
-        
-        // Wait a moment for USPS to potentially show address suggestions
-        console.log('Waiting for USPS address suggestions to appear...');
-        setTimeout(() => {
-            handleAddressSuggestions(shippingAddress);
-        }, 3000);
-    }
+    const suggestionsDelayMs = 3000;
+    const promise = new Promise((resolve) => {
+        if (streetAddressField) {
+            streetAddressField.value = addressComponents.mainAddress;
+            triggerInputEvent(streetAddressField);
+            console.log('Filled Street Address 1:', addressComponents.mainAddress);
+
+            // Wait a moment for USPS to potentially show address suggestions
+            console.log('Waiting for USPS address suggestions to appear...');
+            setTimeout(() => {
+                try {
+                    handleAddressSuggestions(shippingAddress);
+                } finally {
+                    resolve();
+                }
+            }, suggestionsDelayMs);
+        } else {
+            // If we can't find the street input, still attempt manual city/state/zip fill.
+            try {
+                fillStateAndZipManually(shippingAddress);
+            } finally {
+                resolve();
+            }
+        }
+    });
     
     // Fill Address 2 (apartment/suite/floor) if available
     if (addressComponents.aptSuite) {
@@ -363,6 +427,8 @@ function fillShippingAddress(orderData) {
     } else {
         console.log('No apartment/suite information found in address');
     }
+
+    return promise;
 }
 
 /**
@@ -1761,7 +1827,9 @@ async function fillFormWithOrderData(orderData) {
     fillCustomerInformation(orderData);
     
     // Fill shipping address
-    fillShippingAddress(orderData);
+    const shippingAddress = getShippingAddressFromOrder(orderData);
+    await fillShippingAddress(orderData);
+    await waitForAddressFieldsFilled(shippingAddress);
     
     // Fill reference numbers
     fillReferenceNumbers(orderData);
