@@ -36,6 +36,9 @@ export default defineBackground(() => {
       case 'injectUSPSAutoFill':
         handleInjectUSPSAutoFill(request, sendResponse);
         return true;
+      case 'getDeliveryInstructionsTemplate':
+        handleGetDeliveryInstructionsTemplate(sendResponse);
+        return true;
       case 'logMessage':
         console.log('Content script log:', request.message);
         break;
@@ -303,6 +306,31 @@ async function handleUpdateVeeqoOrder_InternalNote(
   }
 }
 
+const DELIVERY_INSTRUCTIONS_TEMPLATE_PATH = 'content/veeqo/print/delivery-instructions.html';
+const DELIVERY_INSTRUCTIONS_CSS_PATH = 'css/veeqo/delivery-instructions-print.css';
+
+async function handleGetDeliveryInstructionsTemplate(
+  sendResponse: (r: { success: boolean; html?: string; css?: string; error?: string }) => void
+) {
+  const htmlUrl = chrome.runtime.getURL(DELIVERY_INSTRUCTIONS_TEMPLATE_PATH);
+  const cssUrl = chrome.runtime.getURL(DELIVERY_INSTRUCTIONS_CSS_PATH);
+  try {
+    const [htmlRes, cssRes] = await Promise.all([fetch(htmlUrl), fetch(cssUrl)]);
+    if (!htmlRes.ok) {
+      throw new Error(`Template HTTP ${htmlRes.status}`);
+    }
+    if (!cssRes.ok) {
+      throw new Error(`Print CSS HTTP ${cssRes.status}`);
+    }
+    const [html, css] = await Promise.all([htmlRes.text(), cssRes.text()]);
+    sendResponse({ success: true, html, css });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('getDeliveryInstructionsTemplate:', err);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
 async function handleInjectUSPSAutoFill(
   request: { tabId?: number; orderData?: unknown },
   sendResponse: (r: { success: boolean; error?: string; message?: string }) => void
@@ -325,7 +353,7 @@ async function handleInjectUSPSAutoFill(
     }
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['js/usps-autofill.js'],
+      files: ['content/usps/usps-autofill.js'],
     });
     sendResponse({ success: true, message: 'USPS auto-fill script injected' });
   } catch (error: unknown) {

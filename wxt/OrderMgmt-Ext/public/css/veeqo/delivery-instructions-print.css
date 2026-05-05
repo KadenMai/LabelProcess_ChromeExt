@@ -1,0 +1,68 @@
+/**
+ * 4x6 print layout for “Delivery instructions” (opened from Veeqo Print Note)
+ */
+@page {
+    size: 4in 6in;
+    margin: 0.25in;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0;
+    padding: 10px;
+}
+
+.delivery-instructions__header {
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 10px;
+    border-bottom: 2px solid #000;
+    padding-bottom: 5px;
+}
+
+.delivery-instructions__field {
+    margin-bottom: 8px;
+}
+
+.delivery-instructions__label {
+    font-weight: bold;
+    display: inline-block;
+    width: 120px;
+}
+
+.delivery-instructions__value {
+    display: inline-block;
+}
+
+.delivery-instructions__body {
+    margin-top: 15px;
+    padding: 10px;
+    border: 1px solid #000;
+    background-color: #f9f9f9;
+    font-weight: bold;
+}
+
+.delivery-instructions__footer {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    border-top: 2px solid #000;
+    padding-top: 5px;
+    text-align: center;
+}
+
+.no-print {
+    /* hidden when printing */
+}
+
+@media print {
+    body {
+        margin: 0;
+        padding: 5px;
+    }
+    .no-print {
+        display: none;
+    }
+}

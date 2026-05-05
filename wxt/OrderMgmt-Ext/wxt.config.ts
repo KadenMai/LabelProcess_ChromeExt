@@ -1,7 +1,12 @@
 import { defineConfig } from 'wxt';
 
-// Unbundled legacy scripts live in public/ (see public/veeqo-legacy, public/js) for global scope parity with the pre-WXT extension.
+/**
+ * Content scripts under public/content/:
+ * - veeqo: app.veeqo.com (error/recovery, USPS UI, api, delivery-instructions, main content) · see css/veeqo for Veeqo styles
+ * - usps: cnsb.usps.com autofill
+ */
 export default defineConfig({
+  modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Veeqo USPS Label Manager',
     version: '1.0',
@@ -13,20 +18,20 @@ export default defineConfig({
       {
         matches: ['*://app.veeqo.com/*'],
         js: [
-          'veeqo-legacy/error-handler.js',
-          'veeqo-legacy/extension-recovery.js',
-          'veeqo-legacy/usps-functions.js',
-          'veeqo-legacy/veeqo-api.js',
-          'veeqo-legacy/api-proxy.js',
-          'veeqo-legacy/print-functions.js',
-          'veeqo-legacy/content-script.js',
+          'content/veeqo/error-handler.js',
+          'content/veeqo/extension-recovery.js',
+          'content/veeqo/usps-functions.js',
+          'content/veeqo/api/veeqo-api.js',
+          'content/veeqo/api/api-proxy.js',
+          'content/veeqo/delivery-instructions.js',
+          'content/veeqo/content-script.js',
         ],
-        css: ['veeqo-legacy/usps-button.css'],
+        css: ['css/veeqo/usps-button.css'],
         run_at: 'document_end',
       },
       {
         matches: ['*://cnsb.usps.com/*'],
-        js: ['js/usps-autofill.js'],
+        js: ['content/usps/usps-autofill.js'],
         run_at: 'document_end',
       },
     ],

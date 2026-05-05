@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delivery Instructions - {{orderId}}</title>
+    <style type="text/css">
+      {{PRINT_CSS}}
+    </style>
+  </head>
+  <body>
+    <div class="delivery-instructions__header">DELIVERY INSTRUCTIONS</div>
+
+    <div class="delivery-instructions__field">
+      <span class="delivery-instructions__label">Order Number:</span>
+      <span class="delivery-instructions__value">{{orderId}}</span>
+    </div>
+
+    <div class="delivery-instructions__field">
+      <span class="delivery-instructions__label">Customer Name:</span>
+      <span class="delivery-instructions__value">{{recipient}}</span>
+    </div>
+
+    <div class="delivery-instructions__field">
+      <span class="delivery-instructions__label">Customer Phone:</span>
+      <span class="delivery-instructions__value">{{buyerPhone}}</span>
+    </div>
+
+    <div class="delivery-instructions__field">
+      <span class="delivery-instructions__label">Item Info:</span>
+      <span class="delivery-instructions__value">{{quantity}} x {{sku}}</span>
+    </div>
+
+    <div class="delivery-instructions__body">
+      <div class="delivery-instructions__label">Delivery Instructions:</div>
+      <div class="delivery-instructions__value" style="font-size: large">{{deliveryInstructions}}</div>
+    </div>
+
+    <div class="no-print" style="margin-top: 20px; text-align: center">
+      <button
+        type="button"
+        onclick="window.print()"
+        style="
+          padding: 10px 20px;
+          font-size: 14px;
+          background: #007bff;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+        "
+      >
+        Print 4x6 Label
+      </button>
+      <button
+        type="button"
+        onclick="window.close()"
+        style="
+          padding: 10px 20px;
+          font-size: 14px;
+          background: #6c757d;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          margin-left: 10px;
+        "
+      >
+        Close
+      </button>
+    </div>
+
+    <div class="delivery-instructions__footer">
+      <div class="delivery-instructions__value">Thanks for shopping with GocBepViet</div>
+      <br />
+      <div class="delivery-instructions__value">https://gocbepviet.com/</div>
+    </div>
+  </body>
+</html>
