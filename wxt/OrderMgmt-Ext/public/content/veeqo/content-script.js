@@ -55,23 +55,138 @@ async function getUSPSButtonColumn() {
     }
 }
 
+/** Default column for Print Note (Order # column on current allocations grid). */
+const DEFAULT_PRINT_NOTE_COLUMN = 4;
+
+/**
+ * Index API orders by every ID shown in the allocations table (number, sales_record_number, reference).
+ * @param {Array<Object>} allOrders
+ * @returns {Object<string, Object>}
+ */
+function indexApiOrdersByLookupKeys(allOrders) {
+    const map = {};
+    for (const order of allOrders) {
+        const keys = [order.number, order.sales_record_number, order.reference]
+            .filter((k) => k != null && String(k).trim() !== '')
+            .map((k) => String(k).trim());
+        for (const key of keys) {
+            map[key] = order;
+        }
+    }
+    return map;
+}
+
+/**
+ * @param {Object} apiOrder
+ * @returns {string|null}
+ */
+function extractCustomerNoteFromApiOrder(apiOrder) {
+    if (!apiOrder?.customer_note) {
+        return null;
+    }
+    const note = apiOrder.customer_note;
+    if (typeof note === 'string') {
+        const trimmed = note.trim();
+        return trimmed || null;
+    }
+    if (typeof note.text === 'string') {
+        const trimmed = note.text.trim();
+        return trimmed || null;
+    }
+    return null;
+}
+
+/**
+ * Veeqo shows a filled note icon when the order has a customer note.
+ * @param {HTMLElement} row
+ * @returns {boolean}
+ */
+function rowIndicatesCustomerNote(row) {
+    return !!row.querySelector('[aria-label="Order has a note"]');
+}
+
+/**
+ * @param {HTMLElement} row
+ * @param {number} printNoteColumn 1-based column from settings
+ * @returns {HTMLTableCellElement|null}
+ */
+function findPrintNoteTargetCell(row, printNoteColumn) {
+    const cells = row.querySelectorAll('td');
+    const columnIndex = printNoteColumn - 1;
+    if (cells.length > columnIndex) {
+        return cells[columnIndex];
+    }
+    const orderButton = row.querySelector('button[class*="act-react-listing-row-item-name"]');
+    return orderButton ? orderButton.closest('td') : null;
+}
+
+/**
+ * @param {string} orderNumber
+ * @param {Object} fields
+ */
+function updateStoredOrderField(orderNumber, fields) {
+    try {
+        const storedData = localStorage.getItem('veeqoOrderData');
+        if (!storedData) {
+            return;
+        }
+        const map = JSON.parse(storedData);
+        if (map[orderNumber]) {
+            Object.assign(map[orderNumber], fields);
+            localStorage.setItem('veeqoOrderData', JSON.stringify(map));
+        }
+    } catch (error) {
+        console.error('updateStoredOrderField:', error);
+    }
+}
+
+/**
+ * List orders may omit customer_note; fetch full order when the row shows a note icon.
+ * @returns {Promise<string|null>}
+ */
+async function enrichCustomerNoteIfNeeded(orderNumber, orderData, row, apiKey) {
+    if (orderData.customer_note) {
+        return orderData.customer_note;
+    }
+    if (!apiKey || !orderData.id || !rowIndicatesCustomerNote(row)) {
+        return null;
+    }
+    try {
+        const response = await chrome.runtime.sendMessage({
+            action: 'fetchOrderById',
+            apiKey,
+            orderId: orderData.id,
+        });
+        if (response?.success && response.data) {
+            const note = extractCustomerNoteFromApiOrder(response.data);
+            if (note) {
+                updateStoredOrderField(orderNumber, { customer_note: note });
+                return note;
+            }
+        }
+    } catch (error) {
+        console.error(`Error fetching customer note for order ${orderNumber}:`, error);
+    }
+    return null;
+}
+
 /**
  * Get stored Print Note column setting from Chrome storage
- * @returns {Promise<number>} The column number (default: 6)
+ * @returns {Promise<number>} The column number (default: 4 — Order column)
  */
 async function getPrintNoteColumn() {
     try {
         // Check if extension context is still valid
         if (!isExtensionContextValid()) {
-            console.log('Extension context invalidated, using default column 6');
-            return 6;
+            console.log(`Extension context invalidated, using default column ${DEFAULT_PRINT_NOTE_COLUMN}`);
+            return DEFAULT_PRINT_NOTE_COLUMN;
         }
         
         const result = await chrome.storage.sync.get(['printNoteColumn']);
-        return result.printNoteColumn || 6;
+        return result.printNoteColumn || DEFAULT_PRINT_NOTE_COLUMN;
     } catch (error) {
-        console.log('Error getting Print Note column setting, using default column 6:', error.message);
-        return 6;
+        console.log(`Error getting Print Note column setting, using default column ${DEFAULT_PRINT_NOTE_COLUMN}:`, error.message);
+        return DEFAULT_PRINT_NOTE_COLUMN;
     }
 }
 function showSimpleNotification(message) {
@@ -281,51 +396,51 @@ async function addUSPSButtonsToTable(table) {
     console.log(`USPS buttons: ${buttonsAdded} added, ${buttonsSkipped} already existed`);
 }
 
+/** Amazon merchant order ID format shown in Veeqo allocations table */
+const AMAZON_ORDER_ID_PATTERN = /\b(\d{3}-\d{7}-\d{7})\b/;
+
 /**
- * Extract order number from a table row (Column 4 - Order column)
+ * Extract order number from a table row
  * @param {HTMLElement} row - The table row element
  * @returns {string|null} The order number or null if not found
  */
 function extractOrderNumberFromRow(row) {
     try {
-        let orderNumber = null;
-        
-        // Get all cells in the row
-        const cells = row.querySelectorAll('td');
-        
-        // Check if we have at least 4 columns (Column 4 is index 3)
-        if (cells.length >= 4) {
-            const orderCell = cells[3]; // Column 4 (0-indexed)
-            
-            // Look for the button with class containing "act-react-listing-row-item-name"
-            const orderButton = orderCell.querySelector('button[class*="act-react-listing-row-item-name"]');
-            if (orderButton) {
-                // Get the span element inside this button (there should be only one)
-                const spanElement = orderButton.querySelector('span');
-                if (spanElement) {
-                    const orderText = spanElement.textContent?.trim();
-                    if (orderText) {
-                        console.log(`Found order text in span: "${orderText}"`);
-                        orderNumber = orderText;
-                    }
+        // Primary: dedicated order-number button (text is often direct, not in a span)
+        const orderButton = row.querySelector('button[class*="act-react-listing-row-item-name"]');
+        if (orderButton) {
+            const spanText = orderButton.querySelector('span')?.textContent?.trim();
+            const buttonText = orderButton.textContent?.trim();
+            const candidate = spanText || buttonText;
+            if (candidate && AMAZON_ORDER_ID_PATTERN.test(candidate)) {
+                const match = candidate.match(AMAZON_ORDER_ID_PATTERN);
+                if (match?.[1]) {
+                    return match[1];
                 }
             }
-            
-            // Fallback: look for any text in the order cell
-            if (!orderNumber) {
-                const cellText = orderCell.textContent?.trim();
-                if (cellText) {
-                    console.log(`Found order text in cell: "${cellText}"`);
-                    orderNumber = cellText;
-                }
+            if (candidate && !candidate.includes('Ready To Ship')) {
+                return candidate;
             }
         }
-        
-        if (!orderNumber) {
-            console.log('No order number found in column 4');
+
+        // Fallback: copy-to-clipboard control next to the order number
+        const copyButton = row.querySelector('button[aria-label*="Copy"][aria-label*="clipboard"]');
+        if (copyButton) {
+            const ariaLabel = copyButton.getAttribute('aria-label') || '';
+            const quoted = ariaLabel.match(/Copy\s+"([^"]+)"/);
+            if (quoted?.[1]) {
+                return quoted[1].trim();
+            }
         }
-        
-        return orderNumber;
+
+        // Last resort: first Amazon-style ID in the row
+        const rowMatch = row.textContent?.match(AMAZON_ORDER_ID_PATTERN);
+        if (rowMatch?.[1]) {
+            return rowMatch[1];
+        }
+
+        console.log('No order number found in row');
+        return null;
     } catch (error) {
         console.error('Error extracting order number from row:', error);
         return null;
@@ -702,93 +817,94 @@ async function createPrintNoteButtons() {
     
     const printNoteColumn = await getPrintNoteColumn();
     console.log(`🔍 Print Note column configured as: ${printNoteColumn}`);
-    const printNoteColumnIndex = printNoteColumn - 1;
-    
     let printNoteButtonsCreated = 0;
     let ordersWithNotes = 0;
     let ordersWithoutNotes = 0;
-    
-    rows.forEach((row, index) => {
-        // Skip rows that don't have enough columns (likely headers/filters)
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 4) {
-            return; // Skip this row
+    const apiKey = await getApiKey();
+    let rowIndex = 0;
+
+    for (const row of rows) {
+        if (row.querySelectorAll('td').length < 4) {
+            continue;
         }
-        
-        // Skip rows that are actual headers (contain <th> elements with role="columnheader")
-        const headerCells = row.querySelectorAll('th[role="columnheader"]');
-        if (headerCells.length > 0) {
-            return; // Skip this row - it's a header row
+        if (row.querySelectorAll('th[role="columnheader"]').length > 0) {
+            continue;
         }
-        
+
+        rowIndex++;
         const orderNumber = extractOrderNumberFromRow(row);
-        if (orderNumber) {
-            console.log(`🔍 Checking row ${index + 1} - Order: ${orderNumber}`);
-            
-            const orderData = getStoredOrderData(orderNumber);
-            if (orderData) {
-                console.log(`🔍 Order data found for ${orderNumber}:`, orderData);
-                
-                if (orderData.customer_note) {
-                    ordersWithNotes++;
-                    console.log(`✅ Order ${orderNumber} has customer note: "${orderData.customer_note}"`);
-                    
-                    const cells = row.querySelectorAll('td');
-                    
-                    if (cells.length >= printNoteColumn) {
-                        const printNoteCell = cells[printNoteColumnIndex];
-                        
-                        // Check if Print Note button already exists
-                        if (!printNoteCell.querySelector('.print-note-button')) {
-                            const printNoteButton = document.createElement('button');
-                            printNoteButton.className = 'print-note-button';
-                            printNoteButton.textContent = 'Print Note';
-                            printNoteButton.id = `print-note-${orderNumber}`;
-                            printNoteButton.title = `Print customer note for order: ${orderNumber}`;
-                            
-                            // Style the button
-                            printNoteButton.style.cssText = `
-                                background: #17a2b8;
-                                color: white;
-                                border: none;
-                                padding: 6px 12px;
-                                border-radius: 4px;
-                                font-size: 12px;
-                                cursor: pointer;
-                                margin: 2px;
-                                transition: background-color 0.3s ease;
-                            `;
-                            
-                            // Add hover effect
-                            printNoteButton.addEventListener('mouseenter', function() {
-                                this.style.backgroundColor = '#138496';
-                            });
-                            
-                            printNoteButton.addEventListener('mouseleave', function() {
-                                this.style.backgroundColor = '#17a2b8';
-                            });
-                            
-                            // Add click event listener
-                            printNoteButton.addEventListener('click', function() {
-                                console.log(`Print Note button clicked for order: ${orderNumber}`);
-                                printDeliveryInstructions(orderData);
-                            });
-                            
-                            printNoteCell.appendChild(printNoteButton);
-                            printNoteButtonsCreated++;
-                            console.log(`✅ Added Print Note button to column ${printNoteColumn} for order: ${orderNumber}`);
-                        }
-                    }
-                } else {
-                    ordersWithoutNotes++;
-                    console.log(`🔍 Order ${orderNumber} has no customer note`);
-                }
-            } else {
-                console.log(`❌ No order data found for ${orderNumber}`);
+        if (!orderNumber) {
+            continue;
+        }
+
+        console.log(`🔍 Checking row ${rowIndex} - Order: ${orderNumber}`);
+
+        let orderData = getStoredOrderData(orderNumber);
+        if (!orderData) {
+            console.log(`❌ No order data found for ${orderNumber}`);
+            continue;
+        }
+
+        let customerNote = orderData.customer_note;
+        if (!customerNote) {
+            customerNote = await enrichCustomerNoteIfNeeded(orderNumber, orderData, row, apiKey);
+            if (customerNote) {
+                orderData = { ...orderData, customer_note: customerNote };
             }
         }
-        // Note: Removed "No order number found" log since we now skip non-data rows
-    });
+
+        if (!customerNote) {
+            ordersWithoutNotes++;
+            console.log(`🔍 Order ${orderNumber} has no customer note`);
+            continue;
+        }
+
+        ordersWithNotes++;
+        console.log(`✅ Order ${orderNumber} has customer note: "${customerNote}"`);
+
+        const printNoteCell = findPrintNoteTargetCell(row, printNoteColumn);
+        if (!printNoteCell) {
+            console.log(`⚠️ No target cell for Print Note on order ${orderNumber}`);
+            continue;
+        }
+
+        if (printNoteCell.querySelector('.print-note-button')) {
+            continue;
+        }
+
+        const printNoteButton = document.createElement('button');
+        printNoteButton.className = 'print-note-button';
+        printNoteButton.textContent = 'Print Note';
+        printNoteButton.id = `print-note-${orderNumber}`;
+        printNoteButton.title = `Print delivery instructions for order: ${orderNumber}`;
+        printNoteButton.style.cssText = `
+            display: block;
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-top: 6px;
+            transition: background-color 0.3s ease;
+        `;
+
+        printNoteButton.addEventListener('mouseenter', function() {
+            this.style.backgroundColor = '#138496';
+        });
+        printNoteButton.addEventListener('mouseleave', function() {
+            this.style.backgroundColor = '#17a2b8';
+        });
+        printNoteButton.addEventListener('click', function() {
+            console.log(`Print Note button clicked for order: ${orderNumber}`);
+            printDeliveryInstructions(orderData);
+        });
+
+        printNoteCell.appendChild(printNoteButton);
+        printNoteButtonsCreated++;
+        console.log(`✅ Added Print Note button to column ${printNoteColumn} for order: ${orderNumber}`);
+    }
     
     console.log(`📊 Summary: ${ordersWithNotes} orders with notes, ${ordersWithoutNotes} orders without notes`);
     console.log(`📊 Created ${printNoteButtonsCreated} Print Note buttons`);
@@ -1227,13 +1343,7 @@ function parseAmazonOrders(content) {
 function createOrderMapping(amazonOrders, veeqoOrders) {
     const mapping = {};
     
-    // Create a map of Veeqo orders by their number (which should match Amazon order ID)
-    const veeqoOrderMap = {};
-    veeqoOrders.forEach(order => {
-        if (order.number) {
-            veeqoOrderMap[order.number] = order;
-        }
-    });
+    const veeqoOrderMap = indexApiOrdersByLookupKeys(veeqoOrders);
     
     // Only map Amazon orders that have delivery instructions
     const ordersWithInstructions = amazonOrders.filter(order => 
@@ -1332,6 +1442,102 @@ function extractTableDataForOrders(orderNumbers) {
 }
 
 /**
+ * Normalize Veeqo /orders response (array, wrapped object, or single order).
+ * @param {*} data
+ * @returns {Array<Object>}
+ */
+function parseVeeqoOrdersPage(data) {
+    if (Array.isArray(data)) {
+        return data;
+    }
+    if (!data || typeof data !== 'object') {
+        return [];
+    }
+    if (Array.isArray(data.orders)) {
+        return data.orders;
+    }
+    if (Array.isArray(data.results)) {
+        return data.results;
+    }
+    if (Array.isArray(data.data)) {
+        return data.data;
+    }
+    if (data.data && Array.isArray(data.data.orders)) {
+        return data.data.orders;
+    }
+    // page_size=1 sometimes returns one order object instead of an array
+    if (data.id != null && (data.number != null || data.sales_record_number != null)) {
+        return [data];
+    }
+    return [];
+}
+
+/**
+ * Fetch one order by Amazon / merchant order number via Veeqo query search.
+ * @param {string} apiKey
+ * @param {string} orderNumber
+ * @returns {Promise<Object|null>}
+ */
+async function fetchApiOrderByQuery(apiKey, orderNumber) {
+    const response = await chrome.runtime.sendMessage({
+        action: 'fetchVeeqoOrders',
+        apiKey,
+        params: { query: orderNumber, page_size: 25 },
+    });
+
+    if (!response?.success) {
+        console.warn(`Query fetch failed for ${orderNumber}:`, response?.error);
+        return null;
+    }
+
+    const orders = parseVeeqoOrdersPage(response.data);
+    const normalized = String(orderNumber).trim();
+    return orders.find((order) =>
+        String(order.sales_record_number) === normalized ||
+        String(order.number) === normalized ||
+        String(order.reference) === normalized
+    ) || orders[0] || null;
+}
+
+/**
+ * @param {Object} apiOrder
+ * @param {string} orderNumber
+ * @param {Object} htmlData
+ * @returns {Object}
+ */
+function buildOrderDataFromApiOrder(apiOrder, orderNumber, htmlData = {}) {
+    const skuCodes = apiOrder.line_items?.map((item) => item.sellable?.sku_code).filter(Boolean) || [];
+    const quantityToShip = htmlData.quantity_to_ship || '1';
+    const formattedReferenceNumber = skuCodes.length > 0
+        ? `${quantityToShip} x ${skuCodes.join(', ')}`
+        : quantityToShip;
+
+    let allocationPackage = null;
+    if (apiOrder.allocations?.length > 0) {
+        allocationPackage = apiOrder.allocations[0].allocation_package;
+    }
+
+    return {
+        deliver_to: apiOrder.delivery_method?.name || null,
+        sku_codes: skuCodes,
+        allocation_package: allocationPackage,
+        line_items: apiOrder.line_items || [],
+        shipping_addresses: apiOrder.deliver_to || null,
+        customer: apiOrder.customer || null,
+        customer_note: extractCustomerNoteFromApiOrder(apiOrder),
+        sales_record_number: apiOrder.sales_record_number || orderNumber,
+        reference_number: formattedReferenceNumber,
+        id: apiOrder.id,
+        number: apiOrder.number || null,
+        status: apiOrder.status || null,
+        total_price: apiOrder.total_price || null,
+        currency_code: apiOrder.currency_code || null,
+        veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
+        quantity_to_ship: quantityToShip,
+    };
+}
+
+/**
  * Fetch all orders from Veeqo API with pagination
  * @param {string} apiKey - Veeqo API key
  * @param {Object} baseParams - Base parameters for the API request
@@ -1363,17 +1569,7 @@ async function fetchAllOrdersWithPagination(apiKey, baseParams = {}) {
                 break;
             }
             
-            // Parse response data
-            let pageOrders = [];
-            if (Array.isArray(response.data)) {
-                pageOrders = response.data;
-            } else if (response.data?.orders) {
-                pageOrders = response.data.orders;
-            } else if (response.data?.results) {
-                pageOrders = response.data.results;
-            } else if (response.data?.data) {
-                pageOrders = Array.isArray(response.data.data) ? response.data.data : response.data.data.orders || [];
-            }
+            const pageOrders = parseVeeqoOrdersPage(response.data);
             
             console.log(`✅ Page ${page}: Fetched ${pageOrders.length} orders`);
             
@@ -1438,15 +1634,9 @@ async function fetchAllOrderData(orderNumbers) {
             console.log(`📋 Order ${index + 1} - id:`, order.id);
         });
         
-        // Create a mapping of number to order data
-        const apiOrderMap = {};
-        allOrders.forEach(order => {
-            if (order.number) {
-                apiOrderMap[order.number] = order;
-            }
-        });
+        const apiOrderMap = indexApiOrdersByLookupKeys(allOrders);
         
-        console.log(`Created API order map with ${Object.keys(apiOrderMap).length} orders using sales_record_number`);
+        console.log(`Created API order map with ${Object.keys(apiOrderMap).length} lookup keys from ${allOrders.length} orders`);
         
         // Get HTML table data for each order
         const tableData = extractTableDataForOrders(orderNumbers);
@@ -1457,67 +1647,20 @@ async function fetchAllOrderData(orderNumbers) {
             try {
                 console.log(`Looking for order data for sales_record_number: ${orderNumber}`);
                 
-                // Find matching order in API data using sales_record_number
-                const apiOrder = apiOrderMap[orderNumber];
-                
-                // Get HTML table data for this order
                 const htmlData = tableData[orderNumber] || {};
-                
+                let apiOrder = apiOrderMap[orderNumber];
+
+                if (!apiOrder) {
+                    console.log(`🔍 Order ${orderNumber} not in bulk list — querying API...`);
+                    apiOrder = await fetchApiOrderByQuery(apiKey, orderNumber);
+                }
+
                 if (apiOrder) {
-                    // Get SKU codes and quantity for reference_number formatting
-                    const skuCodes = apiOrder.line_items?.map(item => item.sellable?.sku_code).filter(Boolean) || [];
-                    const quantityToShip = htmlData.quantity_to_ship || '1';
-                    
-                    // Format reference_number as: {quantity_to_ship} x {sku_codes}
-                    const formattedReferenceNumber = skuCodes.length > 0 
-                        ? `${quantityToShip} x ${skuCodes.join(', ')}`
-                        : quantityToShip;
-                    
-                    // Debug: Log the API order structure to see what's available
-                    console.log('🔍 API Order structure for', orderNumber, ':', apiOrder);
-                    console.log('🔍 API Order keys:', Object.keys(apiOrder));
-                    console.log('🔍 Has allocations:', !!apiOrder.allocations);
-                    console.log('🔍 Allocations length:', apiOrder.allocations?.length || 0);
-                    
-                    // Extract allocation_package from allocations array
-                    let allocationPackage = null;
-                    if (apiOrder.allocations && apiOrder.allocations.length > 0) {
-                        allocationPackage = apiOrder.allocations[0].allocation_package;
-                        console.log('🔍 Found allocation_package in allocations[0]:', allocationPackage);
-                    } else {
-                        console.log('🔍 No allocations found or allocations array is empty');
-                    }
-                    
-                    // Extract customer note if available
-                    let customerNote = null;
-                    if (apiOrder.customer_note && apiOrder.customer_note.text) {
-                        customerNote = apiOrder.customer_note.text;
-                        console.log('🔍 Found customer note:', customerNote);
-                    }
-                    
-                    // Extract the required data based on actual Veeqo API structure
-                    const extractedData = {
-                        deliver_to: apiOrder.delivery_method?.name || null,
-                        sku_codes: skuCodes,
-                        allocation_package: allocationPackage,
-                        line_items: apiOrder.line_items || [],
-                        shipping_addresses: apiOrder.deliver_to || null,
-                        customer: apiOrder.customer || null,
-                        customer_note: customerNote,
-                        sales_record_number: apiOrder.sales_record_number || orderNumber,
-                        reference_number: formattedReferenceNumber,
-                        id: apiOrder.id,
-                        // Additional useful fields from Veeqo API
-                        number: apiOrder.number || null,
-                        status: apiOrder.status || null,
-                        total_price: apiOrder.total_price || null,
-                        currency_code: apiOrder.currency_code || null,
-                        // HTML table data
-                        veeqo_shipping_rate: htmlData.veeqo_shipping_rate || null,
-                        quantity_to_ship: quantityToShip
-                    };
-                                
+                    const extractedData = buildOrderDataFromApiOrder(apiOrder, orderNumber, htmlData);
                     orderDataMap[orderNumber] = extractedData;
+                    if (extractedData.customer_note) {
+                        console.log(`🔍 Found customer note for ${orderNumber}:`, extractedData.customer_note);
+                    }
                     console.log(`✅ Matched data for sales_record_number ${orderNumber}:`, extractedData);
                 } else {
                     console.warn(`❌ No API data found for sales_record_number: ${orderNumber}`);

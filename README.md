@@ -12,7 +12,34 @@ A Chrome extension that adds a USPS button to the Veeqo allocations table for qu
 - Secure API key storage in browser
 - Settings page for easy configuration
 
-## Installation
+## Build & install (WXT — current version)
+
+The extension is built with [WXT](https://wxt.dev/) from **`wxt/OrderMgmt-Ext`**, not from the repo root. Running `npm run build` at the root will fail with *“No entrypoints found”*.
+
+```powershell
+cd wxt\OrderMgmt-Ext
+npm install
+npm run build
+```
+
+Load the built extension in Chrome:
+
+1. Open `chrome://extensions/`
+2. Enable **Developer mode**
+3. **Load unpacked** → select `wxt\OrderMgmt-Ext\.output\chrome-mv3`
+
+For development with auto-rebuild:
+
+```powershell
+cd wxt\OrderMgmt-Ext
+npm run dev
+```
+
+Then reload the extension in Chrome after code changes.
+
+## Installation (legacy unpacked layout)
+
+The root `manifest.json` + `js/` folder is an older layout. Prefer the WXT build above. If you still use the legacy folder:
 
 1. Download or clone this repository
 2. Open Chrome and go to `chrome://extensions/`
@@ -43,6 +70,19 @@ A Chrome extension that adds a USPS button to the Veeqo allocations table for qu
 5. Paste it in the extension settings
 
 ## File Structure
+
+**WXT project (use this):**
+
+```
+wxt/OrderMgmt-Ext/
+├── entrypoints/               # popup, options, background (WXT entrypoints)
+├── public/content/            # Veeqo + USPS content scripts
+├── wxt.config.ts
+├── package.json
+└── .output/chrome-mv3/        # Created by `npm run build` — load this in Chrome
+```
+
+**Legacy (repo root):**
 
 ```
 ├── manifest.json              # Extension manifest
@@ -76,12 +116,12 @@ A Chrome extension that adds a USPS button to the Veeqo allocations table for qu
 
 ## Development
 
-The extension is built with modular architecture:
+Work in `wxt/OrderMgmt-Ext/`. Main sources:
 
-- `usps-functions.js`: Contains the core USPS functionality
-- `content-script.js`: Handles DOM manipulation and button injection
-- `background.js`: Manages tab creation and extension lifecycle
-- `usps-button.css`: Provides styling for the USPS button
+- `public/content/veeqo/content-script.js` — allocations table UI (USPS, Fill Order Data, Print Note)
+- `public/content/usps/usps-autofill.js` — USPS label autofill
+- `entrypoints/background.ts` — API proxy, print templates
+- `entrypoints/popup/` — settings UI (React)
 
 ## Browser Compatibility
 

@@ -143,10 +143,14 @@ async function handleFetchVeeqoOrders(
       sendResponse({ success: false, error: 'No API key provided' });
       return;
     }
-    const defaultParams = { page_size: 100, status: 'awaiting_fulfillment' };
+    const mergedParams: Record<string, string | number> = { page_size: 100, ...params };
+    // Default status for bulk list only — query lookups must not be status-filtered
+    if (!('status' in params) && !params.query) {
+      mergedParams.status = 'awaiting_fulfillment';
+    }
     const queryParams = new URLSearchParams({
       ...Object.fromEntries(
-        Object.entries({ ...defaultParams, ...params }).map(([k, v]) => [k, String(v)])
+        Object.entries(mergedParams).map(([k, v]) => [k, String(v)])
       ),
     });
     const apiUrl = `https://api.veeqo.com/orders?${queryParams}`;

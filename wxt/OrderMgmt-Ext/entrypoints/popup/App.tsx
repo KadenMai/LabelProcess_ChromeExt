@@ -26,7 +26,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyType, setApiKeyType] = useState<'password' | 'text'>('password');
   const [uspsButtonColumn, setUspsButtonColumn] = useState(3);
-  const [printNoteColumn, setPrintNoteColumn] = useState(6);
+  const [printNoteColumn, setPrintNoteColumn] = useState(4);
   const [apiStatus, setApiStatus] = useState<{ show: boolean; ok: boolean; text: string }>({
     show: false,
     ok: false,
@@ -208,10 +208,10 @@ export default function App() {
                 min={1}
                 max={20}
                 value={printNoteColumn}
-                onChange={(e) => setPrintNoteColumn(parseInt(e.target.value, 10) || 6)}
+                onChange={(e) => setPrintNoteColumn(parseInt(e.target.value, 10) || 4)}
               />
             </div>
-            <div className="help-text">Column number where the Print Note button will be added (default: 6)</div>
+            <div className="help-text">Column number where the Print Note button will be added (default: 4 — Order column)</div>
           </div>
 
           <div className="form-group">
