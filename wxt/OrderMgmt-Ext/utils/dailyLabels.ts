@@ -1,7 +1,8 @@
 /**
  * Daily UPS shipping-label retrieval — port of Samples/retrieve_label.py
+ * Labels are sorted by buy time (shipment.created_at) and each page is stamped.
  */
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const BASE_URL = 'https://api.veeqo.com';
 const UPS_CARRIER_ID = 5;
@@ -22,6 +23,11 @@ export type DailyLabelsResult = {
   filename: string;
   /** PDF bytes as base64 (no data: prefix) */
   pdfBase64: string;
+};
+
+export type ShipmentLabelInfo = {
+  id: number;
+  createdAtMs: number;
 };
 
 type Shipment = Record<string, unknown>;
@@ -62,6 +68,22 @@ function parseApiDatetime(value: unknown): number | null {
   const normalized = value.replace('Z', '+00:00');
   const ms = Date.parse(normalized);
   return Number.isNaN(ms) ? null : ms;
+}
+
+/** Local buy-time label stamped onto each PDF page. */
+export function formatBuyTimeLocal(ms: number): string {
+  const d = new Date(ms);
+  const date = d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const time = d.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return `Bought: ${date} ${time}`;
 }
 
 function trackingNumberText(shipment: Shipment): string {
@@ -148,14 +170,15 @@ async function fetchOrdersPage(
   return (await response.json()) as Order[];
 }
 
-export async function getUpsShipmentIdsForDay(
+/** UPS shipments for the local day, sorted by buy time (created_at) ascending. */
+export async function getUpsShipmentsForDay(
   apiKey: string,
   targetDateStr?: string | null,
   onProgress?: (p: DailyLabelsProgress) => void
-): Promise<{ shipmentIds: number[]; dateStr: string }> {
+): Promise<{ shipments: ShipmentLabelInfo[]; dateStr: string }> {
   const { dateStr, dayStartMs, dayEndMs } = parseTargetDay(targetDateStr);
   const updatedAtMin = formatUpdatedAtMin(dayStartMs);
-  const shipmentIds: number[] = [];
+  const shipments: ShipmentLabelInfo[] = [];
   const seen = new Set<number>();
   let page = 1;
 
@@ -179,21 +202,31 @@ export async function getUpsShipmentIdsForDay(
         if (!shipmentId || seen.has(shipmentId)) continue;
         if (!isUpsShipment(shipment)) continue;
         if (!shipmentCreatedOnDay(shipment, dayStartMs, dayEndMs)) continue;
+        const createdAtMs = parseApiDatetime(shipment.created_at);
+        if (createdAtMs == null) continue;
         seen.add(shipmentId);
-        shipmentIds.push(shipmentId);
+        shipments.push({ id: shipmentId, createdAtMs });
       }
     }
 
     onProgress?.({
       phase: 'fetching_orders',
-      message: `Processed page ${page} — found ${shipmentIds.length} UPS label(s)`,
+      message: `Processed page ${page} — found ${shipments.length} UPS label(s)`,
       page,
-      found: shipmentIds.length,
+      found: shipments.length,
     });
     page += 1;
   }
 
-  return { shipmentIds, dateStr };
+  shipments.sort((a, b) => a.createdAtMs - b.createdAtMs || a.id - b.id);
+
+  onProgress?.({
+    phase: 'fetching_orders',
+    message: `Sorted ${shipments.length} label(s) by buy time`,
+    found: shipments.length,
+  });
+
+  return { shipments, dateStr };
 }
 
 async function downloadLabelsBatch(
@@ -218,6 +251,44 @@ async function downloadLabelsBatch(
   return new Uint8Array(await response.arrayBuffer());
 }
 
+/** Draw buy-time text on every page (top-left, with a light background). */
+async function stampBuyTimeOnPdf(
+  pdfBytes: Uint8Array,
+  buyTimeLabel: string
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(pdfBytes);
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fontSize = 8;
+  const textWidth = font.widthOfTextAtSize(buyTimeLabel, fontSize);
+  const padX = 4;
+  const padY = 3;
+  const boxH = fontSize + padY * 2;
+
+  for (const page of doc.getPages()) {
+    const { height } = page.getSize();
+    const boxY = height - boxH - 4;
+    page.drawRectangle({
+      x: 4,
+      y: boxY,
+      width: textWidth + padX * 2,
+      height: boxH,
+      color: rgb(1, 1, 1),
+      opacity: 0.9,
+      borderColor: rgb(0.2, 0.2, 0.2),
+      borderWidth: 0.4,
+    });
+    page.drawText(buyTimeLabel, {
+      x: 4 + padX,
+      y: boxY + padY,
+      size: fontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  return doc.save();
+}
+
 async function mergePdfs(pdfBytesList: Uint8Array[]): Promise<Uint8Array> {
   const merged = await PDFDocument.create();
   for (const bytes of pdfBytesList) {
@@ -237,84 +308,150 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/**
+ * Download labels ordered by buy time.
+ * When addTimestamp is true, downloads one-by-one and stamps each page.
+ * Otherwise downloads in batches (faster) while keeping buy-time order.
+ */
 export async function fetchAndMergeLabels(
   apiKey: string,
-  shipmentIds: number[],
-  onProgress?: (p: DailyLabelsProgress) => void
+  shipments: ShipmentLabelInfo[],
+  onProgress?: (p: DailyLabelsProgress) => void,
+  addTimestamp = true
 ): Promise<Uint8Array> {
-  if (!shipmentIds.length) {
+  if (!shipments.length) {
     throw new Error('No UPS shipping labels to download for this day.');
   }
 
-  const totalBatches = Math.ceil(shipmentIds.length / BATCH_SIZE);
-  onProgress?.({
-    phase: 'downloading_labels',
-    message: `Downloading labels for ${shipmentIds.length} shipment(s)…`,
-    found: shipmentIds.length,
-    batch: 0,
-    totalBatches,
-  });
+  const total = shipments.length;
+  const shipmentIds = shipments.map((s) => s.id);
 
-  if (shipmentIds.length <= BATCH_SIZE) {
-    try {
-      const bytes = await downloadLabelsBatch(apiKey, shipmentIds);
-      onProgress?.({
-        phase: 'done',
-        message: `Downloaded ${shipmentIds.length} label(s)`,
-        found: shipmentIds.length,
-      });
-      return bytes;
-    } catch {
-      // fall through to chunked merge
-    }
-  }
-
-  const batches: Uint8Array[] = [];
-  for (let i = 0; i < shipmentIds.length; i += BATCH_SIZE) {
-    const chunk = shipmentIds.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+  if (!addTimestamp) {
+    const totalBatches = Math.ceil(total / BATCH_SIZE);
     onProgress?.({
       phase: 'downloading_labels',
-      message: `Downloading batch ${batchNum}/${totalBatches} (${chunk.length} label(s))…`,
-      found: shipmentIds.length,
-      batch: batchNum,
+      message: `Downloading ${total} label(s) (ordered by buy time)…`,
+      found: total,
+      batch: 0,
       totalBatches,
     });
-    batches.push(await downloadLabelsBatch(apiKey, chunk));
+
+    if (total <= BATCH_SIZE) {
+      try {
+        const bytes = await downloadLabelsBatch(apiKey, shipmentIds);
+        onProgress?.({
+          phase: 'done',
+          message: `Downloaded ${total} label(s)`,
+          found: total,
+        });
+        return bytes;
+      } catch {
+        // fall through to chunked merge
+      }
+    }
+
+    const batches: Uint8Array[] = [];
+    for (let i = 0; i < shipmentIds.length; i += BATCH_SIZE) {
+      const chunk = shipmentIds.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      onProgress?.({
+        phase: 'downloading_labels',
+        message: `Downloading batch ${batchNum}/${totalBatches} (${chunk.length} label(s))…`,
+        found: total,
+        batch: batchNum,
+        totalBatches,
+      });
+      batches.push(await downloadLabelsBatch(apiKey, chunk));
+    }
+
+    onProgress?.({
+      phase: 'merging',
+      message: `Merging ${batches.length} PDF batch(es)…`,
+      found: total,
+    });
+    const merged = batches.length === 1 ? batches[0] : await mergePdfs(batches);
+    onProgress?.({
+      phase: 'done',
+      message: `Merged ${total} label(s) ordered by buy time`,
+      found: total,
+    });
+    return merged;
+  }
+
+  onProgress?.({
+    phase: 'downloading_labels',
+    message: `Downloading & stamping ${total} label(s) (ordered by buy time)…`,
+    found: total,
+    batch: 0,
+    totalBatches: total,
+  });
+
+  const stampedParts: Uint8Array[] = [];
+
+  // One shipment per request so each PDF maps cleanly to its buy time.
+  for (let i = 0; i < shipments.length; i++) {
+    const shipment = shipments[i];
+    const n = i + 1;
+    onProgress?.({
+      phase: 'downloading_labels',
+      message: `Downloading label ${n}/${total}…`,
+      found: total,
+      batch: n,
+      totalBatches: total,
+    });
+
+    let bytes = await downloadLabelsBatch(apiKey, [shipment.id]);
+    bytes = await stampBuyTimeOnPdf(bytes, formatBuyTimeLocal(shipment.createdAtMs));
+    stampedParts.push(bytes);
+
+    // Yield to the event loop so progress messages can flush.
+    await new Promise((r) => setTimeout(r, 0));
   }
 
   onProgress?.({
     phase: 'merging',
-    message: `Merging ${batches.length} PDF batch(es)…`,
-    found: shipmentIds.length,
+    message: `Merging ${stampedParts.length} label PDF(s)…`,
+    found: total,
   });
-  const merged = await mergePdfs(batches);
+
+  const merged =
+    stampedParts.length === 1 ? stampedParts[0] : await mergePdfs(stampedParts);
+
   onProgress?.({
     phase: 'done',
-    message: `Merged ${shipmentIds.length} label(s)`,
-    found: shipmentIds.length,
+    message: `Merged ${total} label(s) ordered by buy time`,
+    found: total,
   });
+
   return merged;
 }
 
 export async function generateDailyLabelsPdf(
   apiKey: string,
   targetDateStr?: string | null,
-  onProgress?: (p: DailyLabelsProgress) => void
+  onProgress?: (p: DailyLabelsProgress) => void,
+  options?: { addTimestamp?: boolean }
 ): Promise<DailyLabelsResult> {
-  const { shipmentIds, dateStr } = await getUpsShipmentIdsForDay(
+  const addTimestamp = options?.addTimestamp !== false;
+  const { shipments, dateStr } = await getUpsShipmentsForDay(
     apiKey,
     targetDateStr,
     onProgress
   );
-  if (!shipmentIds.length) {
+  if (!shipments.length) {
     throw new Error(`No UPS shipping labels found for ${dateStr}.`);
   }
-  const pdfBytes = await fetchAndMergeLabels(apiKey, shipmentIds, onProgress);
+  const pdfBytes = await fetchAndMergeLabels(
+    apiKey,
+    shipments,
+    onProgress,
+    addTimestamp
+  );
   const filename = `UPS_Labels_${dateStr}.pdf`;
+  const ids = shipments.map((s) => s.id);
   return {
     dateStr,
-    shipmentIds,
+    shipmentIds: ids,
     filename,
     pdfBase64: uint8ToBase64(pdfBytes),
   };

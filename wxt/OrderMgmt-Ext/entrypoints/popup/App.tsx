@@ -47,6 +47,11 @@ function buildShareSubject(shareMessage: string, dateStr: string): string {
   return `${base} ${dateStr}`.trim();
 }
 
+/** Same PDF filename for Download / Email attachment / Share / WhatsApp. */
+function buildPdfFileName(shareMessage: string, dateStr: string): string {
+  return `${sanitizeFileName(buildShareSubject(shareMessage, dateStr))}.pdf`;
+}
+
 function sanitizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'UPS_Labels';
 }
@@ -161,7 +166,7 @@ async function testApiConnection(apiKey: string): Promise<boolean> {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('settings');
+  const [activeTab, setActiveTab] = useState<TabId>('labels');
   const [apiKey, setApiKey] = useState('');
   const [apiKeyType, setApiKeyType] = useState<'password' | 'text'>('password');
   const [uspsButtonColumn, setUspsButtonColumn] = useState(3);
@@ -180,6 +185,7 @@ export default function App() {
   const [labelDate, setLabelDate] = useState(todayLocalYmd);
   const [shareMessage, setShareMessage] = useState(DEFAULT_SHARE_MESSAGE);
   const [shareMessageReady, setShareMessageReady] = useState(false);
+  const [addTimestamp, setAddTimestamp] = useState(true);
   const [labelsLoading, setLabelsLoading] = useState(false);
   const [labelsProgress, setLabelsProgress] = useState<DailyLabelsProgress | null>(null);
   const [labelsError, setLabelsError] = useState<string | null>(null);
@@ -203,6 +209,7 @@ export default function App() {
           'uspsButtonColumn',
           'printNoteColumn',
           'labelsShareMessage',
+          'labelsAddTimestamp',
         ]);
         if (result.veeqoApiKey) {
           setApiKey(result.veeqoApiKey);
@@ -213,6 +220,9 @@ export default function App() {
         if (result.printNoteColumn) setPrintNoteColumn(Number(result.printNoteColumn));
         if (typeof result.labelsShareMessage === 'string' && result.labelsShareMessage.trim()) {
           setShareMessage(result.labelsShareMessage);
+        }
+        if (typeof result.labelsAddTimestamp === 'boolean') {
+          setAddTimestamp(result.labelsAddTimestamp);
         }
         setShareMessageReady(true);
       } catch (e) {
@@ -227,12 +237,14 @@ export default function App() {
     if (!shareMessageReady) return;
     const timer = setTimeout(() => {
       const value = shareMessage.trim() || DEFAULT_SHARE_MESSAGE;
-      chrome.storage.sync.set({ labelsShareMessage: value }).catch((e) => {
-        console.error('Error saving share message:', e);
-      });
+      chrome.storage.sync
+        .set({ labelsShareMessage: value, labelsAddTimestamp: addTimestamp })
+        .catch((e) => {
+          console.error('Error saving label options:', e);
+        });
     }, 400);
     return () => clearTimeout(timer);
-  }, [shareMessage, shareMessageReady]);
+  }, [shareMessage, addTimestamp, shareMessageReady]);
 
   useEffect(() => {
     const onMessage = (msg: { action?: string; progress?: DailyLabelsProgress }) => {
@@ -323,6 +335,7 @@ export default function App() {
         action: 'generateDailyLabelsPdf',
         apiKey: apiKey.trim() || undefined,
         targetDate: labelDate || todayLocalYmd(),
+        addTimestamp,
       });
 
       if (!response?.success || !response.data) {
@@ -356,39 +369,6 @@ export default function App() {
     }
   };
 
-  const onDownloadPdf = async () => {
-    if (!generatedPdf) return false;
-    setShareNote(null);
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'downloadDailyLabelsPdf',
-        pdfBase64: generatedPdf.pdfBase64,
-        filename: generatedPdf.filename,
-      });
-      if (response?.success) {
-        setShareNote('Download started — choose where to save the PDF.');
-        return true;
-      }
-
-      // Fallback if data-URL download is too large for chrome.downloads
-      const blob = base64ToBlob(generatedPdf.pdfBase64, 'application/pdf');
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = generatedPdf.filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-      setShareNote('Download started.');
-      return true;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setLabelsError(msg);
-      return false;
-    }
-  };
-
   const canWebShareFiles = useMemo(() => {
     try {
       return typeof navigator !== 'undefined' && !!navigator.canShare && !!navigator.share;
@@ -402,17 +382,56 @@ export default function App() {
     [shareMessage, generatedPdf?.dateStr, labelDate]
   );
 
+  const pdfFileName = useMemo(
+    () =>
+      buildPdfFileName(
+        shareMessage,
+        generatedPdf?.dateStr || labelDate || todayLocalYmd()
+      ),
+    [shareMessage, generatedPdf?.dateStr, labelDate]
+  );
+
+  const onDownloadPdf = async () => {
+    if (!generatedPdf) return false;
+    setShareNote(null);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'downloadDailyLabelsPdf',
+        pdfBase64: generatedPdf.pdfBase64,
+        filename: pdfFileName,
+      });
+      if (response?.success) {
+        setShareNote('Download started — choose where to save the PDF.');
+        return true;
+      }
+
+      // Fallback if data-URL download is too large for chrome.downloads
+      const blob = base64ToBlob(generatedPdf.pdfBase64, 'application/pdf');
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = pdfFileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      setShareNote('Download started.');
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLabelsError(msg);
+      return false;
+    }
+  };
+
   const onShareNative = async () => {
     if (!generatedPdf) return;
     setShareNote(null);
     try {
       const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
-      // Name the file after the subject — Windows Mail often uses the filename
-      // as the email subject and ignores navigator.share({ title }).
-      const shareFileName = `${sanitizeFileName(subject)}.pdf`;
       const file = new File(
         [base64ToBlob(generatedPdf.pdfBase64, 'application/pdf')],
-        shareFileName,
+        pdfFileName,
         { type: 'application/pdf' }
       );
       if (!navigator.canShare?.({ files: [file] })) {
@@ -445,10 +464,10 @@ export default function App() {
       const emlBlob = buildEmailDraftEml({
         subject,
         body,
-        pdfFileName: generatedPdf.filename,
+        pdfFileName,
         pdfBase64: generatedPdf.pdfBase64,
       });
-      const emlName = `${sanitizeFileName(subject)}.eml`;
+      const emlName = pdfFileName.replace(/\.pdf$/i, '.eml');
       await downloadAndOpenFile(emlBlob, emlName);
       setShareNote('Opened a new email draft to send (subject + PDF attached). Fill in To and send.');
     } catch (e) {
@@ -465,7 +484,7 @@ export default function App() {
     const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
     const text = encodeURIComponent(
       `${subject}\n${generatedPdf.shipmentCount} label(s).\n` +
-        `Please attach the downloaded file: ${generatedPdf.filename}`
+        `Please attach the downloaded file: ${pdfFileName}`
     );
     window.open(`https://wa.me/?text=${text}`, '_blank');
     setShareNote('PDF download started. Attach that file in the WhatsApp chat.');
@@ -481,13 +500,6 @@ export default function App() {
       <div className="tabs">
         <button
           type="button"
-          className={'tab' + (activeTab === 'settings' ? ' active' : '')}
-          onClick={() => setActiveTab('settings')}
-        >
-          Settings
-        </button>
-        <button
-          type="button"
           className={'tab' + (activeTab === 'labels' ? ' active' : '')}
           onClick={() => setActiveTab('labels')}
         >
@@ -500,90 +512,13 @@ export default function App() {
         >
           Instructions
         </button>
-      </div>
-
-      <div className={'tab-content' + (activeTab === 'settings' ? ' active' : '')} id="settings">
-        <form onSubmit={onSubmit}>
-          <div className="form-group">
-            <label htmlFor="apiKey">Veeqo API Key</label>
-            <div className="input-wrapper">
-              <input
-                id="apiKey"
-                type={apiKeyType}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your Veeqo API key"
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                className="toggle-password"
-                aria-label={apiKeyType === 'password' ? 'Show password' : 'Hide password'}
-                onClick={() => setApiKeyType((t) => (t === 'password' ? 'text' : 'password'))}
-              >
-                {apiKeyType === 'password' ? '👁️' : '🙈'}
-              </button>
-            </div>
-            <div className="help-text">
-              Get your API key from Veeqo Settings → API Keys. This allows the extension to fetch order
-              details.
-            </div>
-          </div>
-
-          <div className="form-group">
-            <div className="setting-row">
-              <label htmlFor="uspsButtonColumn">USPS Button Column:</label>
-              <input
-                id="uspsButtonColumn"
-                type="number"
-                min={1}
-                max={20}
-                value={uspsButtonColumn}
-                onChange={(e) => setUspsButtonColumn(parseInt(e.target.value, 10) || 3)}
-              />
-            </div>
-            <div className="help-text">Column number where the USPS button will be added (default: 3)</div>
-          </div>
-
-          <div className="form-group">
-            <div className="setting-row">
-              <label htmlFor="printNoteColumn">Print Note Column:</label>
-              <input
-                id="printNoteColumn"
-                type="number"
-                min={1}
-                max={20}
-                value={printNoteColumn}
-                onChange={(e) => setPrintNoteColumn(parseInt(e.target.value, 10) || 4)}
-              />
-            </div>
-            <div className="help-text">Column number where the Print Note button will be added (default: 4 — Order column)</div>
-          </div>
-
-          <div className="form-group">
-            <div
-              className={
-                'api-status' + (apiStatus.show ? ' visible' : '') + (apiStatus.show ? (apiStatus.ok ? ' connected' : ' disconnected') : '')
-              }
-            >
-              <div className={'status-indicator' + (apiStatus.ok ? ' connected' : ' disconnected')} />
-              <span>{apiStatus.text}</span>
-            </div>
-          </div>
-
-          <div className="button-group">
-            <button type="button" className="btn-secondary" onClick={onTestConnection}>
-              Test Connection
-            </button>
-            <button type="submit" className="btn-primary">
-              Save Settings
-            </button>
-          </div>
-        </form>
-
-        <div className={'status' + (status.show ? ' visible' : '') + (status.type ? ' ' + status.type : '')}>
-          {status.message}
-        </div>
+        <button
+          type="button"
+          className={'tab' + (activeTab === 'settings' ? ' active' : '')}
+          onClick={() => setActiveTab('settings')}
+        >
+          Settings
+        </button>
       </div>
 
       <div className={'tab-content' + (activeTab === 'labels' ? ' active' : '')} id="labels">
@@ -622,6 +557,23 @@ export default function App() {
           </div>
         </div>
 
+        <div className="form-group">
+          <label className="checkbox-row" htmlFor="addTimestamp">
+            <input
+              id="addTimestamp"
+              type="checkbox"
+              checked={addTimestamp}
+              onChange={(e) => setAddTimestamp(e.target.checked)}
+              disabled={labelsLoading}
+            />
+            <span>Add Timestamp</span>
+          </label>
+          <div className="help-text">
+            When checked, each label is stamped with its buy time (local). Labels are always ordered
+            by buy time.
+          </div>
+        </div>
+
         <div className="button-group">
           <button
             type="button"
@@ -645,7 +597,7 @@ export default function App() {
         {generatedPdf && !labelsLoading && (
           <div className="labels-result">
             <div className="labels-result-summary">
-              <strong>{generatedPdf.filename}</strong>
+              <strong>{pdfFileName}</strong>
               <span>
                 {generatedPdf.shipmentCount} UPS label{generatedPdf.shipmentCount === 1 ? '' : 's'} ·{' '}
                 {generatedPdf.dateStr}
@@ -733,6 +685,92 @@ export default function App() {
           </p>
         </div>
       </div>
+
+      <div className={'tab-content' + (activeTab === 'settings' ? ' active' : '')} id="settings">
+        <form onSubmit={onSubmit}>
+          <div className="form-group">
+            <label htmlFor="apiKey">Veeqo API Key</label>
+            <div className="input-wrapper">
+              <input
+                id="apiKey"
+                type={apiKeyType}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your Veeqo API key"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="toggle-password"
+                aria-label={apiKeyType === 'password' ? 'Show password' : 'Hide password'}
+                onClick={() => setApiKeyType((t) => (t === 'password' ? 'text' : 'password'))}
+              >
+                {apiKeyType === 'password' ? '👁️' : '🙈'}
+              </button>
+            </div>
+            <div className="help-text">
+              Get your API key from Veeqo Settings → API Keys. This allows the extension to fetch order
+              details.
+            </div>
+          </div>
+
+          <div className="form-group">
+            <div className="setting-row">
+              <label htmlFor="uspsButtonColumn">USPS Button Column:</label>
+              <input
+                id="uspsButtonColumn"
+                type="number"
+                min={1}
+                max={20}
+                value={uspsButtonColumn}
+                onChange={(e) => setUspsButtonColumn(parseInt(e.target.value, 10) || 3)}
+              />
+            </div>
+            <div className="help-text">Column number where the USPS button will be added (default: 3)</div>
+          </div>
+
+          <div className="form-group">
+            <div className="setting-row">
+              <label htmlFor="printNoteColumn">Print Note Column:</label>
+              <input
+                id="printNoteColumn"
+                type="number"
+                min={1}
+                max={20}
+                value={printNoteColumn}
+                onChange={(e) => setPrintNoteColumn(parseInt(e.target.value, 10) || 4)}
+              />
+            </div>
+            <div className="help-text">Column number where the Print Note button will be added (default: 4 — Order column)</div>
+          </div>
+
+          <div className="form-group">
+            <div
+              className={
+                'api-status' + (apiStatus.show ? ' visible' : '') + (apiStatus.show ? (apiStatus.ok ? ' connected' : ' disconnected') : '')
+              }
+            >
+              <div className={'status-indicator' + (apiStatus.ok ? ' connected' : ' disconnected')} />
+              <span>{apiStatus.text}</span>
+            </div>
+          </div>
+
+          <div className="button-group">
+            <button type="button" className="btn-secondary" onClick={onTestConnection}>
+              Test Connection
+            </button>
+            <button type="submit" className="btn-primary">
+              Save Settings
+            </button>
+          </div>
+        </form>
+
+        <div className={'status' + (status.show ? ' visible' : '') + (status.type ? ' ' + status.type : '')}>
+          {status.message}
+        </div>
+      </div>
+
+
     </div>
   );
 }

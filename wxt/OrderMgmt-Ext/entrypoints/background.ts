@@ -379,7 +379,7 @@ async function handleInjectUSPSAutoFill(
 }
 
 async function handleGenerateDailyLabelsPdf(
-  request: { apiKey?: string; targetDate?: string | null },
+  request: { apiKey?: string; targetDate?: string | null; addTimestamp?: boolean },
   sendResponse: (
     r: { success: boolean; data?: DailyLabelsResult; error?: string }
   ) => void
@@ -403,7 +403,9 @@ async function handleGenerateDailyLabelsPdf(
         });
     };
 
-    const data = await generateDailyLabelsPdf(apiKey, request.targetDate, onProgress);
+    const data = await generateDailyLabelsPdf(apiKey, request.targetDate, onProgress, {
+      addTimestamp: request.addTimestamp !== false,
+    });
     sendResponse({ success: true, data });
   } catch (error: unknown) {
     const err = error as Error;

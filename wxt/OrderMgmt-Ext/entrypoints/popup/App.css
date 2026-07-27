@@ -284,6 +284,24 @@ button {
   line-height: 1.45;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+  font-weight: 500;
+  color: #333;
+  font-size: 13px;
+}
+
+.checkbox-row input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+  accent-color: #0052a5;
+  cursor: pointer;
+}
+
 .labels-progress {
   margin-top: 14px;
   padding: 10px 12px;
