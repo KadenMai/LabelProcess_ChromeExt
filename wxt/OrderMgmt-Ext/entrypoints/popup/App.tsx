@@ -459,8 +459,9 @@ export default function App() {
     try {
       const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
       const body =
+        `${subject}\n\n` +
         `Please find the UPS shipping labels PDF attached.\n\n` +
-        `${generatedPdf.shipmentCount} label(s) purchased on ${generatedPdf.dateStr}.`;
+        `${generatedPdf.shipmentCount} label(s) shipped on ${generatedPdf.dateStr}.`;
       const emlBlob = buildEmailDraftEml({
         subject,
         body,
