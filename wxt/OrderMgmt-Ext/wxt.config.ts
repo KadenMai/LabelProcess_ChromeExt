@@ -12,7 +12,7 @@ export default defineConfig({
     version: '1.0',
     description:
       'Adds USPS button to Veeqo allocations table for quick access to USPS label manager',
-    permissions: ['activeTab', 'tabs', 'scripting', 'storage'],
+    permissions: ['activeTab', 'tabs', 'scripting', 'storage', 'downloads'],
     host_permissions: ['https://api.veeqo.com/*', 'https://cnsb.usps.com/*'],
     content_scripts: [
       {

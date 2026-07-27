@@ -1,10 +1,50 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 type StatusType = 'success' | 'error' | 'info';
+type TabId = 'settings' | 'labels' | 'instructions';
+
+type DailyLabelsProgress = {
+  phase: 'fetching_orders' | 'downloading_labels' | 'merging' | 'done';
+  message: string;
+  page?: number;
+  found?: number;
+  batch?: number;
+  totalBatches?: number;
+};
+
+type GeneratedPdf = {
+  dateStr: string;
+  shipmentCount: number;
+  filename: string;
+  pdfBase64: string;
+};
 
 function isValidApiKey(apiKey: string): boolean {
   return apiKey.startsWith('Vqt/') && apiKey.length > 20;
+}
+
+function todayLocalYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const DEFAULT_SHARE_MESSAGE = '[GocBepViet] Shipping Label';
+
+function base64ToBlob(base64: string, mime: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/** Combine stored share message with the label date (used as email subject, etc.). */
+function buildShareSubject(shareMessage: string, dateStr: string): string {
+  const base = shareMessage.trim() || DEFAULT_SHARE_MESSAGE;
+  return `${base} ${dateStr}`.trim();
 }
 
 async function testApiConnection(apiKey: string): Promise<boolean> {
@@ -22,7 +62,7 @@ async function testApiConnection(apiKey: string): Promise<boolean> {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'settings' | 'instructions'>('settings');
+  const [activeTab, setActiveTab] = useState<TabId>('settings');
   const [apiKey, setApiKey] = useState('');
   const [apiKeyType, setApiKeyType] = useState<'password' | 'text'>('password');
   const [uspsButtonColumn, setUspsButtonColumn] = useState(3);
@@ -38,6 +78,15 @@ export default function App() {
     message: '',
   });
 
+  const [labelDate, setLabelDate] = useState(todayLocalYmd);
+  const [shareMessage, setShareMessage] = useState(DEFAULT_SHARE_MESSAGE);
+  const [shareMessageReady, setShareMessageReady] = useState(false);
+  const [labelsLoading, setLabelsLoading] = useState(false);
+  const [labelsProgress, setLabelsProgress] = useState<DailyLabelsProgress | null>(null);
+  const [labelsError, setLabelsError] = useState<string | null>(null);
+  const [generatedPdf, setGeneratedPdf] = useState<GeneratedPdf | null>(null);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+
   const showStatus = useCallback((message: string, type: StatusType) => {
     setStatus({ show: true, type, message });
     setTimeout(() => setStatus((s) => ({ ...s, show: false })), 5000);
@@ -50,7 +99,12 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const result = await chrome.storage.sync.get(['veeqoApiKey', 'uspsButtonColumn', 'printNoteColumn']);
+        const result = await chrome.storage.sync.get([
+          'veeqoApiKey',
+          'uspsButtonColumn',
+          'printNoteColumn',
+          'labelsShareMessage',
+        ]);
         if (result.veeqoApiKey) {
           setApiKey(result.veeqoApiKey);
           const isValid = await testApiConnection(result.veeqoApiKey);
@@ -58,12 +112,38 @@ export default function App() {
         }
         if (result.uspsButtonColumn) setUspsButtonColumn(Number(result.uspsButtonColumn));
         if (result.printNoteColumn) setPrintNoteColumn(Number(result.printNoteColumn));
+        if (typeof result.labelsShareMessage === 'string' && result.labelsShareMessage.trim()) {
+          setShareMessage(result.labelsShareMessage);
+        }
+        setShareMessageReady(true);
       } catch (e) {
         console.error('Error loading settings:', e);
         showStatus('Error loading settings', 'error');
+        setShareMessageReady(true);
       }
     })();
   }, [showStatus, updateApiStatus]);
+
+  useEffect(() => {
+    if (!shareMessageReady) return;
+    const timer = setTimeout(() => {
+      const value = shareMessage.trim() || DEFAULT_SHARE_MESSAGE;
+      chrome.storage.sync.set({ labelsShareMessage: value }).catch((e) => {
+        console.error('Error saving share message:', e);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [shareMessage, shareMessageReady]);
+
+  useEffect(() => {
+    const onMessage = (msg: { action?: string; progress?: DailyLabelsProgress }) => {
+      if (msg?.action === 'dailyLabelsProgress' && msg.progress) {
+        setLabelsProgress(msg.progress);
+      }
+    };
+    chrome.runtime.onMessage.addListener(onMessage);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+  }, []);
 
   const onTestConnection = async () => {
     const k = apiKey.trim();
@@ -132,6 +212,155 @@ export default function App() {
     }
   };
 
+  const onGenerateLabels = async () => {
+    setLabelsError(null);
+    setShareNote(null);
+    setGeneratedPdf(null);
+    setLabelsLoading(true);
+    setLabelsProgress({ phase: 'fetching_orders', message: 'Starting…' });
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'generateDailyLabelsPdf',
+        apiKey: apiKey.trim() || undefined,
+        targetDate: labelDate || todayLocalYmd(),
+      });
+
+      if (!response?.success || !response.data) {
+        throw new Error(response?.error || 'Failed to generate labels PDF');
+      }
+
+      const data = response.data as {
+        dateStr: string;
+        shipmentIds: number[];
+        filename: string;
+        pdfBase64: string;
+      };
+
+      setGeneratedPdf({
+        dateStr: data.dateStr,
+        shipmentCount: data.shipmentIds.length,
+        filename: data.filename,
+        pdfBase64: data.pdfBase64,
+      });
+      setLabelsProgress({
+        phase: 'done',
+        message: `Ready — ${data.shipmentIds.length} UPS label(s) for ${data.dateStr}`,
+        found: data.shipmentIds.length,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLabelsError(msg);
+      setLabelsProgress(null);
+    } finally {
+      setLabelsLoading(false);
+    }
+  };
+
+  const onDownloadPdf = async () => {
+    if (!generatedPdf) return false;
+    setShareNote(null);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'downloadDailyLabelsPdf',
+        pdfBase64: generatedPdf.pdfBase64,
+        filename: generatedPdf.filename,
+      });
+      if (response?.success) {
+        setShareNote('Download started — choose where to save the PDF.');
+        return true;
+      }
+
+      // Fallback if data-URL download is too large for chrome.downloads
+      const blob = base64ToBlob(generatedPdf.pdfBase64, 'application/pdf');
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = generatedPdf.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      setShareNote('Download started.');
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLabelsError(msg);
+      return false;
+    }
+  };
+
+  const canWebShareFiles = useMemo(() => {
+    try {
+      return typeof navigator !== 'undefined' && !!navigator.canShare && !!navigator.share;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const shareSubjectPreview = useMemo(
+    () => buildShareSubject(shareMessage, generatedPdf?.dateStr || labelDate || todayLocalYmd()),
+    [shareMessage, generatedPdf?.dateStr, labelDate]
+  );
+
+  const onShareNative = async () => {
+    if (!generatedPdf) return;
+    setShareNote(null);
+    try {
+      const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
+      const file = new File(
+        [base64ToBlob(generatedPdf.pdfBase64, 'application/pdf')],
+        generatedPdf.filename,
+        { type: 'application/pdf' }
+      );
+      if (!navigator.canShare?.({ files: [file] })) {
+        setShareNote(
+          'This browser cannot attach PDFs via Share. Download the file, then attach it in Email or WhatsApp.'
+        );
+        return;
+      }
+      await navigator.share({
+        files: [file],
+        title: subject,
+        text: `${subject}\n${generatedPdf.shipmentCount} label(s). Please attach: ${generatedPdf.filename}`,
+      });
+      setShareNote('Shared successfully.');
+    } catch (e) {
+      const err = e as { name?: string; message?: string };
+      if (err.name === 'AbortError') return;
+      setShareNote(err.message || 'Share cancelled or failed.');
+    }
+  };
+
+  const onShareEmail = async () => {
+    if (!generatedPdf) return;
+    setShareNote(null);
+    const ok = await onDownloadPdf();
+    if (!ok) return;
+    const subject = encodeURIComponent(buildShareSubject(shareMessage, generatedPdf.dateStr));
+    const body = encodeURIComponent(
+      `Please find the UPS shipping labels PDF attached (${generatedPdf.filename}).\n\n` +
+        `${generatedPdf.shipmentCount} label(s) purchased on ${generatedPdf.dateStr}.\n\n` +
+        `(Attach the downloaded PDF file to this email.)`
+    );
+    window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+    setShareNote('PDF download started. Attach that file in your email compose window.');
+  };
+
+  const onShareWhatsApp = async () => {
+    if (!generatedPdf) return;
+    setShareNote(null);
+    const ok = await onDownloadPdf();
+    if (!ok) return;
+    const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
+    const text = encodeURIComponent(
+      `${subject}\n${generatedPdf.shipmentCount} label(s).\n` +
+        `Please attach the downloaded file: ${generatedPdf.filename}`
+    );
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+    setShareNote('PDF download started. Attach that file in the WhatsApp chat.');
+  };
+
   return (
     <div className="container">
       <div className="header">
@@ -146,6 +375,13 @@ export default function App() {
           onClick={() => setActiveTab('settings')}
         >
           Settings
+        </button>
+        <button
+          type="button"
+          className={'tab' + (activeTab === 'labels' ? ' active' : '')}
+          onClick={() => setActiveTab('labels')}
+        >
+          Labels
         </button>
         <button
           type="button"
@@ -240,6 +476,102 @@ export default function App() {
         </div>
       </div>
 
+      <div className={'tab-content' + (activeTab === 'labels' ? ' active' : '')} id="labels">
+        <div className="labels-intro">
+          <p>
+            Generate a single PDF of all <strong>UPS</strong> shipping labels purchased on a local
+            calendar day (same logic as the retrieve_label sample).
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="labelDate">Label date (local time)</label>
+          <input
+            id="labelDate"
+            type="date"
+            value={labelDate}
+            onChange={(e) => setLabelDate(e.target.value)}
+            disabled={labelsLoading}
+          />
+          <div className="help-text">Defaults to today. Uses your computer&apos;s local timezone.</div>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="shareMessage">Share message</label>
+          <input
+            id="shareMessage"
+            type="text"
+            value={shareMessage}
+            onChange={(e) => setShareMessage(e.target.value)}
+            placeholder={DEFAULT_SHARE_MESSAGE}
+            autoComplete="off"
+          />
+          <div className="help-text">
+            Saved automatically. Email subject / WhatsApp text:{' '}
+            <strong>{shareSubjectPreview}</strong>
+          </div>
+        </div>
+
+        <div className="button-group">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={onGenerateLabels}
+            disabled={labelsLoading}
+          >
+            {labelsLoading ? 'Generating…' : 'Generate PDF'}
+          </button>
+        </div>
+
+        {labelsProgress && (
+          <div className="labels-progress">
+            <div className="labels-progress-bar" data-phase={labelsProgress.phase} />
+            <p>{labelsProgress.message}</p>
+          </div>
+        )}
+
+        {labelsError && <div className="status error visible">{labelsError}</div>}
+
+        {generatedPdf && !labelsLoading && (
+          <div className="labels-result">
+            <div className="labels-result-summary">
+              <strong>{generatedPdf.filename}</strong>
+              <span>
+                {generatedPdf.shipmentCount} UPS label{generatedPdf.shipmentCount === 1 ? '' : 's'} ·{' '}
+                {generatedPdf.dateStr}
+              </span>
+            </div>
+
+            <div className="button-group labels-actions">
+              <button type="button" className="btn-primary" onClick={onDownloadPdf}>
+                Download
+              </button>
+              <button type="button" className="btn-secondary" onClick={onShareEmail}>
+                Email
+              </button>
+              <button type="button" className="btn-secondary" onClick={onShareWhatsApp}>
+                WhatsApp
+              </button>
+            </div>
+
+            {canWebShareFiles && (
+              <div className="button-group">
+                <button type="button" className="btn-secondary" onClick={onShareNative}>
+                  Share…
+                </button>
+              </div>
+            )}
+
+            <div className="help-text">
+              Email and WhatsApp open a compose window after downloading — attach the saved PDF
+              (browsers cannot attach files automatically).
+            </div>
+          </div>
+        )}
+
+        {shareNote && <div className="status info visible">{shareNote}</div>}
+      </div>
+
       <div className={'tab-content' + (activeTab === 'instructions' ? ' active' : '')} id="instructions">
         <div className="instruction-item">
           <h4>📋 How to Use</h4>
@@ -251,6 +583,14 @@ export default function App() {
             3. Click any &quot;USPS&quot; button to auto-fill shipping labels
             <br />
             4. Review and generate your USPS labels
+          </p>
+        </div>
+        <div className="instruction-item">
+          <h4>📦 Daily UPS Labels</h4>
+          <p>
+            Open the <strong>Labels</strong> tab, pick a date (defaults to today), then Generate PDF.
+            Download the merged file, or use Email / WhatsApp (attach the downloaded PDF in the
+            compose window).
           </p>
         </div>
         <div className="instruction-item">
@@ -270,6 +610,8 @@ export default function App() {
             • If auto-fill doesn&apos;t work, check that the USPS page is fully loaded
             <br />
             • If API connection fails, verify your API key is correct
+            <br />
+            • If Labels PDF finds 0 shipments, confirm labels were bought that local day via UPS
           </p>
         </div>
         <div className="instruction-item">

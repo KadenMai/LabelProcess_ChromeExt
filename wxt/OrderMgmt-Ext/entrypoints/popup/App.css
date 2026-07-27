@@ -87,7 +87,8 @@ label {
 
 input[type='text'],
 input[type='password'],
-input[type='number'] {
+input[type='number'],
+input[type='date'] {
   width: 100%;
   padding: 10px;
   border: 2px solid #e1e5e9;
@@ -99,7 +100,8 @@ input[type='number'] {
 
 input[type='text']:focus,
 input[type='password']:focus,
-input[type='number']:focus {
+input[type='number']:focus,
+input[type='date']:focus {
   outline: none;
   border-color: #0052a5;
   box-shadow: 0 0 0 3px rgba(0, 82, 165, 0.1);
@@ -273,4 +275,80 @@ button {
 .setting-row input {
   flex: 1;
   max-width: 80px;
+}
+
+.labels-intro p {
+  margin: 0 0 16px 0;
+  font-size: 12px;
+  color: #555;
+  line-height: 1.45;
+}
+
+.labels-progress {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: #f0f6fc;
+  border-radius: 6px;
+  border: 1px solid #c5daf0;
+}
+
+.labels-progress p {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  color: #0c5460;
+  line-height: 1.4;
+}
+
+.labels-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #0052a5, #4da3ff, #0052a5);
+  background-size: 200% 100%;
+  animation: labels-pulse 1.2s linear infinite;
+}
+
+.labels-progress-bar[data-phase='done'] {
+  animation: none;
+  background: #28a745;
+}
+
+@keyframes labels-pulse {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.labels-result {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 4px solid #0052a5;
+}
+
+.labels-result-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #444;
+}
+
+.labels-result-summary strong {
+  font-size: 13px;
+  color: #0052a5;
+}
+
+.labels-actions {
+  margin-top: 0;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
 }

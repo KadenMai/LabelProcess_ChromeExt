@@ -1,6 +1,12 @@
 /**
  * Background script — Veeqo USPS (migrated from LabelProcess_ChromeExt)
  */
+import {
+  generateDailyLabelsPdf,
+  type DailyLabelsProgress,
+  type DailyLabelsResult,
+} from '../utils/dailyLabels';
+
 export default defineBackground(() => {
   chrome.runtime.onInstalled.addListener((details) => {
     console.log('Veeqo USPS Extension installed/updated:', details.reason);
@@ -38,6 +44,12 @@ export default defineBackground(() => {
         return true;
       case 'getDeliveryInstructionsTemplate':
         handleGetDeliveryInstructionsTemplate(sendResponse);
+        return true;
+      case 'generateDailyLabelsPdf':
+        handleGenerateDailyLabelsPdf(request, sendResponse);
+        return true;
+      case 'downloadDailyLabelsPdf':
+        handleDownloadDailyLabelsPdf(request, sendResponse);
         return true;
       case 'logMessage':
         console.log('Content script log:', request.message);
@@ -360,6 +372,64 @@ async function handleInjectUSPSAutoFill(
       files: ['content/usps/usps-autofill.js'],
     });
     sendResponse({ success: true, message: 'USPS auto-fill script injected' });
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleGenerateDailyLabelsPdf(
+  request: { apiKey?: string; targetDate?: string | null },
+  sendResponse: (
+    r: { success: boolean; data?: DailyLabelsResult; error?: string }
+  ) => void
+) {
+  try {
+    let apiKey = request.apiKey;
+    if (!apiKey) {
+      const stored = await chrome.storage.sync.get(['veeqoApiKey']);
+      apiKey = stored.veeqoApiKey as string | undefined;
+    }
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'No API key configured. Save it in Settings first.' });
+      return;
+    }
+
+    const onProgress = (p: DailyLabelsProgress) => {
+      chrome.runtime
+        .sendMessage({ action: 'dailyLabelsProgress', progress: p })
+        .catch(() => {
+          /* popup may be closed */
+        });
+    };
+
+    const data = await generateDailyLabelsPdf(apiKey, request.targetDate, onProgress);
+    sendResponse({ success: true, data });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('generateDailyLabelsPdf:', err);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleDownloadDailyLabelsPdf(
+  request: { pdfBase64?: string; filename?: string },
+  sendResponse: (r: { success: boolean; downloadId?: number; error?: string }) => void
+) {
+  try {
+    const { pdfBase64, filename } = request;
+    if (!pdfBase64) {
+      sendResponse({ success: false, error: 'No PDF data provided' });
+      return;
+    }
+    const safeName = (filename || 'UPS_Labels.pdf').replace(/[\\/:*?"<>|]/g, '_');
+    const url = `data:application/pdf;base64,${pdfBase64}`;
+    const downloadId = await chrome.downloads.download({
+      url,
+      filename: safeName,
+      saveAs: true,
+    });
+    sendResponse({ success: true, downloadId });
   } catch (error: unknown) {
     const err = error as Error;
     sendResponse({ success: false, error: err.message });
