@@ -47,6 +47,105 @@ function buildShareSubject(shareMessage: string, dateStr: string): string {
   return `${base} ${dateStr}`.trim();
 }
 
+function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'UPS_Labels';
+}
+
+function encodeRfc2047Subject(text: string): string {
+  if (/^[\x20-\x7E]*$/.test(text)) return text;
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return `=?UTF-8?B?${btoa(binary)}?=`;
+}
+
+function foldBase64(b64: string): string {
+  const lines: string[] = [];
+  for (let i = 0; i < b64.length; i += 76) {
+    lines.push(b64.slice(i, i + 76));
+  }
+  return lines.join('\r\n');
+}
+
+/**
+ * Build a .eml draft with subject + PDF attachment.
+ * X-Unsent: 1 tells Outlook/Thunderbird to open it as a new outbound
+ * compose window (send to someone), not as a received message.
+ */
+function buildEmailDraftEml(opts: {
+  subject: string;
+  body: string;
+  pdfFileName: string;
+  pdfBase64: string;
+}): Blob {
+  const boundary = `----=_Part_${Date.now()}`;
+  const safeAttachName = sanitizeFileName(opts.pdfFileName);
+  const eml =
+    `X-Unsent: 1\r\n` +
+    `From: \r\n` +
+    `To: \r\n` +
+    `Subject: ${encodeRfc2047Subject(opts.subject)}\r\n` +
+    `MIME-Version: 1.0\r\n` +
+    `Content-Type: multipart/mixed; boundary="${boundary}"\r\n` +
+    `\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: text/plain; charset="UTF-8"\r\n` +
+    `Content-Transfer-Encoding: 8bit\r\n` +
+    `\r\n` +
+    `${opts.body}\r\n` +
+    `\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: application/pdf; name="${safeAttachName}"\r\n` +
+    `Content-Transfer-Encoding: base64\r\n` +
+    `Content-Disposition: attachment; filename="${safeAttachName}"\r\n` +
+    `\r\n` +
+    `${foldBase64(opts.pdfBase64)}\r\n` +
+    `--${boundary}--\r\n`;
+
+  return new Blob([eml], { type: 'message/rfc822' });
+}
+
+/** Download to the default Downloads folder (no Save As) and open with the OS default app. */
+async function downloadAndOpenFile(blob: Blob, filename: string): Promise<void> {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const downloadId = await chrome.downloads.download({
+      url: objectUrl,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const finish = (err?: string) => {
+        chrome.downloads.onChanged.removeListener(onChanged);
+        if (err) reject(new Error(err));
+        else resolve();
+      };
+
+      const onChanged = (delta: chrome.downloads.DownloadDelta) => {
+        if (delta.id !== downloadId) return;
+        if (delta.state?.current === 'complete') finish();
+        else if (delta.state?.current === 'interrupted') {
+          finish(delta.error?.current || 'Download was interrupted');
+        }
+      };
+      chrome.downloads.onChanged.addListener(onChanged);
+
+      chrome.downloads.search({ id: downloadId }).then((items) => {
+        const item = items[0];
+        if (!item) return;
+        if (item.state === 'complete') finish();
+        else if (item.state === 'interrupted') finish(item.error || 'Download was interrupted');
+      });
+    });
+
+    await chrome.downloads.open(downloadId);
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+}
+
 async function testApiConnection(apiKey: string): Promise<boolean> {
   try {
     const response = await chrome.runtime.sendMessage({
@@ -308,21 +407,24 @@ export default function App() {
     setShareNote(null);
     try {
       const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
+      // Name the file after the subject — Windows Mail often uses the filename
+      // as the email subject and ignores navigator.share({ title }).
+      const shareFileName = `${sanitizeFileName(subject)}.pdf`;
       const file = new File(
         [base64ToBlob(generatedPdf.pdfBase64, 'application/pdf')],
-        generatedPdf.filename,
+        shareFileName,
         { type: 'application/pdf' }
       );
       if (!navigator.canShare?.({ files: [file] })) {
         setShareNote(
-          'This browser cannot attach PDFs via Share. Download the file, then attach it in Email or WhatsApp.'
+          'This browser cannot attach PDFs via Share. Use the Email button for a .eml draft instead.'
         );
         return;
       }
       await navigator.share({
         files: [file],
         title: subject,
-        text: `${subject}\n${generatedPdf.shipmentCount} label(s). Please attach: ${generatedPdf.filename}`,
+        text: subject,
       });
       setShareNote('Shared successfully.');
     } catch (e) {
@@ -335,16 +437,24 @@ export default function App() {
   const onShareEmail = async () => {
     if (!generatedPdf) return;
     setShareNote(null);
-    const ok = await onDownloadPdf();
-    if (!ok) return;
-    const subject = encodeURIComponent(buildShareSubject(shareMessage, generatedPdf.dateStr));
-    const body = encodeURIComponent(
-      `Please find the UPS shipping labels PDF attached (${generatedPdf.filename}).\n\n` +
-        `${generatedPdf.shipmentCount} label(s) purchased on ${generatedPdf.dateStr}.\n\n` +
-        `(Attach the downloaded PDF file to this email.)`
-    );
-    window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
-    setShareNote('PDF download started. Attach that file in your email compose window.');
+    try {
+      const subject = buildShareSubject(shareMessage, generatedPdf.dateStr);
+      const body =
+        `Please find the UPS shipping labels PDF attached.\n\n` +
+        `${generatedPdf.shipmentCount} label(s) purchased on ${generatedPdf.dateStr}.`;
+      const emlBlob = buildEmailDraftEml({
+        subject,
+        body,
+        pdfFileName: generatedPdf.filename,
+        pdfBase64: generatedPdf.pdfBase64,
+      });
+      const emlName = `${sanitizeFileName(subject)}.eml`;
+      await downloadAndOpenFile(emlBlob, emlName);
+      setShareNote('Opened a new email draft to send (subject + PDF attached). Fill in To and send.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLabelsError(msg);
+    }
   };
 
   const onShareWhatsApp = async () => {
@@ -563,8 +673,9 @@ export default function App() {
             )}
 
             <div className="help-text">
-              Email and WhatsApp open a compose window after downloading — attach the saved PDF
-              (browsers cannot attach files automatically).
+              <strong>Email</strong> downloads a .eml draft (subject + PDF) and opens it as a new
+              message to send. <strong>Share…</strong> uses the system share sheet. WhatsApp still
+              needs you to attach the downloaded PDF.
             </div>
           </div>
         )}
