@@ -45,6 +45,9 @@ export default defineBackground(() => {
       case 'getDeliveryInstructionsTemplate':
         handleGetDeliveryInstructionsTemplate(sendResponse);
         return true;
+      case 'getThankYouTemplate':
+        handleGetThankYouTemplate(sendResponse);
+        return true;
       case 'generateDailyLabelsPdf':
         handleGenerateDailyLabelsPdf(request, sendResponse);
         return true;
@@ -343,6 +346,31 @@ async function handleGetDeliveryInstructionsTemplate(
   } catch (error: unknown) {
     const err = error as Error;
     console.error('getDeliveryInstructionsTemplate:', err);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+const THANK_YOU_TEMPLATE_PATH = 'content/veeqo/print/thank-you.html';
+const THANK_YOU_CSS_PATH = 'css/veeqo/thank-you-print.css';
+
+async function handleGetThankYouTemplate(
+  sendResponse: (r: { success: boolean; html?: string; css?: string; error?: string }) => void
+) {
+  const htmlUrl = chrome.runtime.getURL(THANK_YOU_TEMPLATE_PATH);
+  const cssUrl = chrome.runtime.getURL(THANK_YOU_CSS_PATH);
+  try {
+    const [htmlRes, cssRes] = await Promise.all([fetch(htmlUrl), fetch(cssUrl)]);
+    if (!htmlRes.ok) {
+      throw new Error(`Template HTTP ${htmlRes.status}`);
+    }
+    if (!cssRes.ok) {
+      throw new Error(`Print CSS HTTP ${cssRes.status}`);
+    }
+    const [html, css] = await Promise.all([htmlRes.text(), cssRes.text()]);
+    sendResponse({ success: true, html, css });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('getThankYouTemplate:', err);
     sendResponse({ success: false, error: err.message });
   }
 }

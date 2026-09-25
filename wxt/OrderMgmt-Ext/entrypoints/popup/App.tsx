@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 type StatusType = 'success' | 'error' | 'info';
@@ -20,8 +20,66 @@ type GeneratedPdf = {
   pdfBase64: string;
 };
 
+/** SKU -> Item Name -> Link record used to personalize the printed Thank-You card / QR code. */
+type SkuRecord = {
+  sku: string;
+  itemName: string;
+  link: string;
+};
+
+const SKU_RECORDS_STORAGE_KEY = 'thankYouSkuRecords';
+
 function isValidApiKey(apiKey: string): boolean {
   return apiKey.startsWith('Vqt/') && apiKey.length > 20;
+}
+
+function normalizeLink(link: string): string {
+  const trimmed = link.trim();
+  if (!trimmed) return trimmed;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+/**
+ * Merge `incoming` records into `existing`, keyed by SKU (case-insensitive). Existing records keep
+ * their position when updated; the last record for a given SKU — whether already present or later
+ * in `incoming` — wins.
+ */
+function mergeSkuRecords(existing: SkuRecord[], incoming: SkuRecord[]): SkuRecord[] {
+  const map = new Map<string, SkuRecord>();
+  for (const record of existing) {
+    map.set(record.sku.trim().toLowerCase(), record);
+  }
+  for (const record of incoming) {
+    const key = record.sku.trim().toLowerCase();
+    if (key) map.set(key, record);
+  }
+  return Array.from(map.values());
+}
+
+/** Raw shape expected in an imported JSON SKU-records file. */
+type ImportedSkuRecord = { sku?: unknown; item?: unknown; link?: unknown };
+
+/**
+ * Parse + validate an imported JSON file's contents into SkuRecord[], skipping invalid entries.
+ * @returns the valid records and a count of entries that were skipped
+ */
+function parseImportedSkuRecords(json: unknown): { records: SkuRecord[]; skipped: number } {
+  if (!Array.isArray(json)) {
+    throw new Error('JSON file must contain an array of records.');
+  }
+  const records: SkuRecord[] = [];
+  let skipped = 0;
+  for (const entry of json as ImportedSkuRecord[]) {
+    const sku = typeof entry?.sku === 'string' ? entry.sku.trim() : '';
+    const link = typeof entry?.link === 'string' ? normalizeLink(entry.link) : '';
+    const itemName = typeof entry?.item === 'string' ? entry.item.trim() : '';
+    if (!sku || !link) {
+      skipped++;
+      continue;
+    }
+    records.push({ sku, itemName, link });
+  }
+  return { records, skipped };
 }
 
 function todayLocalYmd(): string {
@@ -171,6 +229,7 @@ export default function App() {
   const [apiKeyType, setApiKeyType] = useState<'password' | 'text'>('password');
   const [uspsButtonColumn, setUspsButtonColumn] = useState(3);
   const [printNoteColumn, setPrintNoteColumn] = useState(4);
+  const [thankButtonColumn, setThankButtonColumn] = useState(4);
   const [apiStatus, setApiStatus] = useState<{ show: boolean; ok: boolean; text: string }>({
     show: false,
     ok: false,
@@ -192,6 +251,15 @@ export default function App() {
   const [generatedPdf, setGeneratedPdf] = useState<GeneratedPdf | null>(null);
   const [shareNote, setShareNote] = useState<string | null>(null);
 
+  const [skuRecords, setSkuRecords] = useState<SkuRecord[]>([]);
+  const [skuRecordsReady, setSkuRecordsReady] = useState(false);
+  const [newSku, setNewSku] = useState('');
+  const [newItemName, setNewItemName] = useState('');
+  const [newLink, setNewLink] = useState('');
+  const [skuRecordsError, setSkuRecordsError] = useState<string | null>(null);
+  const [skuRecordsNote, setSkuRecordsNote] = useState<string | null>(null);
+  const skuImportInputRef = useRef<HTMLInputElement>(null);
+
   const showStatus = useCallback((message: string, type: StatusType) => {
     setStatus({ show: true, type, message });
     setTimeout(() => setStatus((s) => ({ ...s, show: false })), 5000);
@@ -208,6 +276,7 @@ export default function App() {
           'veeqoApiKey',
           'uspsButtonColumn',
           'printNoteColumn',
+          'thankButtonColumn',
           'labelsShareMessage',
           'labelsAddTimestamp',
         ]);
@@ -218,6 +287,7 @@ export default function App() {
         }
         if (result.uspsButtonColumn) setUspsButtonColumn(Number(result.uspsButtonColumn));
         if (result.printNoteColumn) setPrintNoteColumn(Number(result.printNoteColumn));
+        if (result.thankButtonColumn) setThankButtonColumn(Number(result.thankButtonColumn));
         if (typeof result.labelsShareMessage === 'string' && result.labelsShareMessage.trim()) {
           setShareMessage(result.labelsShareMessage);
         }
@@ -245,6 +315,31 @@ export default function App() {
     }, 400);
     return () => clearTimeout(timer);
   }, [shareMessage, addTimestamp, shareMessageReady]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await chrome.storage.local.get([SKU_RECORDS_STORAGE_KEY]);
+        if (Array.isArray(result[SKU_RECORDS_STORAGE_KEY])) {
+          setSkuRecords(result[SKU_RECORDS_STORAGE_KEY]);
+        }
+      } catch (e) {
+        console.error('Error loading SKU records:', e);
+      } finally {
+        setSkuRecordsReady(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!skuRecordsReady) return;
+    const timer = setTimeout(() => {
+      chrome.storage.local.set({ [SKU_RECORDS_STORAGE_KEY]: skuRecords }).catch((e) => {
+        console.error('Error saving SKU records:', e);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [skuRecords, skuRecordsReady]);
 
   useEffect(() => {
     const onMessage = (msg: { action?: string; progress?: DailyLabelsProgress }) => {
@@ -303,11 +398,16 @@ export default function App() {
       showStatus('Print Note Column must be between 1 and 20', 'error');
       return;
     }
+    if (thankButtonColumn < 1 || thankButtonColumn > 20) {
+      showStatus('Thank Button Column must be between 1 and 20', 'error');
+      return;
+    }
     try {
       await chrome.storage.sync.set({
         veeqoApiKey: k,
         uspsButtonColumn,
         printNoteColumn,
+        thankButtonColumn,
       });
       const ok = await testApiConnection(k);
       if (ok) {
@@ -321,6 +421,93 @@ export default function App() {
       console.error('Error saving settings:', err);
       showStatus('Error saving settings', 'error');
     }
+  };
+
+  const onAddSkuRecord = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSkuRecordsError(null);
+
+    const sku = newSku.trim();
+    const link = normalizeLink(newLink);
+    if (!sku) {
+      setSkuRecordsError('SKU is required.');
+      return;
+    }
+    if (!link) {
+      setSkuRecordsError('Link is required.');
+      return;
+    }
+    const isDuplicate = skuRecords.some((r) => r.sku.trim().toLowerCase() === sku.toLowerCase());
+    if (isDuplicate) {
+      setSkuRecordsError(`SKU "${sku}" already has a record. Edit or remove it below.`);
+      return;
+    }
+
+    setSkuRecords((records) => [...records, { sku, itemName: newItemName.trim(), link }]);
+    setNewSku('');
+    setNewItemName('');
+    setNewLink('');
+  };
+
+  const onUpdateSkuRecordField = (index: number, field: keyof SkuRecord, value: string) => {
+    setSkuRecords((records) =>
+      records.map((r, i) => (i === index ? { ...r, [field]: value } : r))
+    );
+  };
+
+  const onRemoveSkuRecord = (index: number) => {
+    setSkuRecords((records) => records.filter((_, i) => i !== index));
+  };
+
+  const onImportSkuRecordsFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+
+    setSkuRecordsError(null);
+    setSkuRecordsNote(null);
+
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const { records: incoming, skipped } = parseImportedSkuRecords(json);
+
+      if (incoming.length === 0) {
+        setSkuRecordsError('No valid records found in that file (each entry needs "sku" and "link").');
+        return;
+      }
+
+      setSkuRecords((records) => mergeSkuRecords(records, incoming));
+      setSkuRecordsNote(
+        `Imported ${incoming.length} record${incoming.length === 1 ? '' : 's'}` +
+          (skipped > 0 ? ` — ${skipped} skipped (missing sku/link).` : '.')
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSkuRecordsError(`Could not import file: ${msg}`);
+    }
+  };
+
+  const onExportSkuRecords = () => {
+    setSkuRecordsError(null);
+
+    if (skuRecords.length === 0) {
+      setSkuRecordsNote('No records to export yet — add or import some first.');
+      return;
+    }
+
+    const payload = skuRecords.map((r) => ({ sku: r.sku, item: r.itemName, link: r.link }));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = `gocbepviet-sku-records-${todayLocalYmd()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+
+    setSkuRecordsNote(`Exported ${skuRecords.length} record${skuRecords.length === 1 ? '' : 's'}.`);
   };
 
   const onGenerateLabels = async () => {
@@ -746,6 +933,21 @@ export default function App() {
           </div>
 
           <div className="form-group">
+            <div className="setting-row">
+              <label htmlFor="thankButtonColumn">Thank Button Column:</label>
+              <input
+                id="thankButtonColumn"
+                type="number"
+                min={1}
+                max={20}
+                value={thankButtonColumn}
+                onChange={(e) => setThankButtonColumn(parseInt(e.target.value, 10) || 4)}
+              />
+            </div>
+            <div className="help-text">Column number where the 💌 Thank button will be added (default: 4 — Order column)</div>
+          </div>
+
+          <div className="form-group">
             <div
               className={
                 'api-status' + (apiStatus.show ? ' visible' : '') + (apiStatus.show ? (apiStatus.ok ? ' connected' : ' disconnected') : '')
@@ -768,6 +970,123 @@ export default function App() {
 
         <div className={'status' + (status.show ? ' visible' : '') + (status.type ? ' ' + status.type : '')}>
           {status.message}
+        </div>
+
+        <div className="sku-records">
+          <div className="sku-records-header">
+            <h4>💌 Thank-You Card Links (by SKU)</h4>
+            <div className="sku-records-header-actions">
+              <button
+                type="button"
+                className="btn-secondary sku-records-import-btn"
+                onClick={onExportSkuRecords}
+              >
+                Export JSON
+              </button>
+              <button
+                type="button"
+                className="btn-secondary sku-records-import-btn"
+                onClick={() => skuImportInputRef.current?.click()}
+              >
+                Import JSON…
+              </button>
+              <input
+                ref={skuImportInputRef}
+                type="file"
+                accept=".json,application/json"
+                style={{ display: 'none' }}
+                onChange={onImportSkuRecordsFile}
+              />
+            </div>
+          </div>
+          <p className="help-text">
+            Map a SKU to a custom item name and link. When printing a Thank-You card, the extension
+            matches the order&apos;s SKU here — the QR code points at this link and the card shows this
+            item name instead of the auto-detected product title. Orders with no matching SKU fall back
+            to the product title and gocbepviet.com.
+          </p>
+          <p className="help-text">
+            <strong>Import JSON</strong> expects an array like{' '}
+            <code>{'[{"sku":"...","item":"...","link":"https://..."}]'}</code>. Records are merged into
+            the list below by SKU (case-insensitive) — importing a SKU that already exists updates it in
+            place.
+          </p>
+
+          {skuRecordsNote && <div className="status info visible">{skuRecordsNote}</div>}
+
+          {skuRecords.length > 0 && (
+            <div className="sku-records-list">
+              <div className="sku-record-row sku-record-row--header">
+                <span>SKU</span>
+                <span>Item Name</span>
+                <span>Link</span>
+                <span />
+              </div>
+              {skuRecords.map((record, index) => (
+                <div className="sku-record-row" key={index}>
+                  <input
+                    type="text"
+                    value={record.sku}
+                    onChange={(e) => onUpdateSkuRecordField(index, 'sku', e.target.value)}
+                    placeholder="SKU"
+                    aria-label="SKU"
+                  />
+                  <input
+                    type="text"
+                    value={record.itemName}
+                    onChange={(e) => onUpdateSkuRecordField(index, 'itemName', e.target.value)}
+                    placeholder="Item name"
+                    aria-label="Item name"
+                  />
+                  <input
+                    type="text"
+                    value={record.link}
+                    onChange={(e) => onUpdateSkuRecordField(index, 'link', e.target.value)}
+                    onBlur={(e) => onUpdateSkuRecordField(index, 'link', normalizeLink(e.target.value))}
+                    placeholder="https://…"
+                    aria-label="Link"
+                  />
+                  <button
+                    type="button"
+                    className="sku-record-remove"
+                    aria-label={`Remove record for ${record.sku || 'this SKU'}`}
+                    onClick={() => onRemoveSkuRecord(index)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form className="sku-record-row sku-record-row--new" onSubmit={onAddSkuRecord}>
+            <input
+              type="text"
+              value={newSku}
+              onChange={(e) => setNewSku(e.target.value)}
+              placeholder="SKU"
+              aria-label="New SKU"
+            />
+            <input
+              type="text"
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              placeholder="Item name"
+              aria-label="New item name"
+            />
+            <input
+              type="text"
+              value={newLink}
+              onChange={(e) => setNewLink(e.target.value)}
+              placeholder="https://…"
+              aria-label="New link"
+            />
+            <button type="submit" className="sku-record-add">
+              Add
+            </button>
+          </form>
+
+          {skuRecordsError && <div className="status error visible">{skuRecordsError}</div>}
         </div>
       </div>
 

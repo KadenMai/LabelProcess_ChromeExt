@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Thank You - {{orderId}}</title>
+    <style type="text/css">
+      {{PRINT_CSS}}
+    </style>
+  </head>
+  <body>
+    <div class="thank-you__card">
+      <div class="thank-you__banner">🌸 Thank You,<br />{{firstName}}! 🌸</div>
+
+      <div class="thank-you__connection">We hope you love your<br /><strong>{{itemName}}</strong>!</div>
+
+      <div class="thank-you__offer">
+        <div class="thank-you__offer-headline">Love it? Get it for less next time 💕</div>
+        <div class="thank-you__offer-sub">Shop direct at <strong>GocBepViet.com</strong> for <strong>BETTER</strong> price</div>
+      </div>
+
+      <div class="thank-you__qr-wrap">
+        <div class="thank-you__qr-label">Scan to shop &amp; save</div>
+        <div class="thank-you__qr">{{QR_SVG}}</div>
+        <div class="thank-you__qr-caption">Better prices &bull; More products &bull; Special offers</div>
+      </div>
+
+      <div class="thank-you__footer">With love, GocBepViet</div>
+    </div>
+
+    <div class="no-print" style="margin-top: 20px; text-align: center">
+      <button
+        type="button"
+        onclick="window.print()"
+        style="
+          padding: 10px 20px;
+          font-size: 14px;
+          background: #007bff;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+        "
+      >
+        Print 4x6 Card
+      </button>
+      <button
+        type="button"
+        onclick="window.close()"
+        style="
+          padding: 10px 20px;
+          font-size: 14px;
+          background: #6c757d;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          margin-left: 10px;
+        "
+      >
+        Close
+      </button>
+    </div>
+  </body>
+</html>

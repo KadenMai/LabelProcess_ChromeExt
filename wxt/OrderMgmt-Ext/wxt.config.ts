@@ -24,6 +24,8 @@ export default defineConfig({
           'content/veeqo/api/veeqo-api.js',
           'content/veeqo/api/api-proxy.js',
           'content/veeqo/delivery-instructions.js',
+          'content/veeqo/print/qrcode.min.js',
+          'content/veeqo/thank-you.js',
           'content/veeqo/content-script.js',
         ],
         css: ['css/veeqo/usps-button.css'],

@@ -370,3 +370,122 @@ button:disabled {
   cursor: not-allowed;
   transform: none;
 }
+
+.sku-records {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #dee2e6;
+}
+
+.sku-records-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.sku-records h4 {
+  margin: 0;
+  color: #e0578c;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sku-records-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sku-records-import-btn {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.sku-records .help-text {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.sku-records .help-text code {
+  background: #f8f9fa;
+  border: 1px solid #e1e5e9;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.sku-records-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  padding-right: 2px;
+}
+
+.sku-record-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.sku-record-row--header {
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+.sku-record-row input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 2px solid #e1e5e9;
+  border-radius: 5px;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+.sku-record-row input:focus {
+  outline: none;
+  border-color: #e0578c;
+  box-shadow: 0 0 0 3px rgba(224, 87, 140, 0.1);
+}
+
+.sku-record-remove {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: #f8f9fa;
+  color: #c8386f;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.sku-record-remove:hover {
+  background: #f8d7da;
+}
+
+.sku-record-row--new {
+  margin-top: 4px;
+}
+
+.sku-record-add {
+  flex: none;
+  width: 26px;
+  min-width: 44px;
+  padding: 6px 4px;
+  background: linear-gradient(135deg, #e0578c 0%, #c8386f 100%);
+  color: white;
+  font-size: 11px;
+  border-radius: 5px;
+}

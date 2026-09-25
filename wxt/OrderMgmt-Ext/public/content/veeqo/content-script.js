@@ -58,6 +58,9 @@ async function getUSPSButtonColumn() {
 /** Default column for Print Note (Order # column on current allocations grid). */
 const DEFAULT_PRINT_NOTE_COLUMN = 4;
 
+/** Default column for the Thank You button (Order # column on current allocations grid). */
+const DEFAULT_THANK_BUTTON_COLUMN = 4;
+
 /**
  * Index API orders by every ID shown in the allocations table (number, sales_record_number, reference).
  * @param {Array<Object>} allOrders
@@ -106,13 +109,14 @@ function rowIndicatesCustomerNote(row) {
 }
 
 /**
+ * Shared by Print Note and Thank You buttons — each has its own configured column.
  * @param {HTMLElement} row
- * @param {number} printNoteColumn 1-based column from settings
+ * @param {number} columnNumber 1-based column from settings
  * @returns {HTMLTableCellElement|null}
  */
-function findPrintNoteTargetCell(row, printNoteColumn) {
+function findPrintNoteTargetCell(row, columnNumber) {
     const cells = row.querySelectorAll('td');
-    const columnIndex = printNoteColumn - 1;
+    const columnIndex = columnNumber - 1;
     if (cells.length > columnIndex) {
         return cells[columnIndex];
     }
@@ -187,6 +191,26 @@ async function getPrintNoteColumn() {
     } catch (error) {
         console.log(`Error getting Print Note column setting, using default column ${DEFAULT_PRINT_NOTE_COLUMN}:`, error.message);
         return DEFAULT_PRINT_NOTE_COLUMN;
+    }
+}
+
+/**
+ * Get stored Thank You button column setting from Chrome storage
+ * @returns {Promise<number>} The column number (default: 4 — Order column)
+ */
+async function getThankButtonColumn() {
+    try {
+        // Check if extension context is still valid
+        if (!isExtensionContextValid()) {
+            console.log(`Extension context invalidated, using default column ${DEFAULT_THANK_BUTTON_COLUMN}`);
+            return DEFAULT_THANK_BUTTON_COLUMN;
+        }
+
+        const result = await chrome.storage.sync.get(['thankButtonColumn']);
+        return result.thankButtonColumn || DEFAULT_THANK_BUTTON_COLUMN;
+    } catch (error) {
+        console.log(`Error getting Thank Button column setting, using default column ${DEFAULT_THANK_BUTTON_COLUMN}:`, error.message);
+        return DEFAULT_THANK_BUTTON_COLUMN;
     }
 }
 function showSimpleNotification(message) {
@@ -659,7 +683,10 @@ async function showAllUSPSButtons() {
     
     // Create Print Note buttons for orders with customer notes
     await createPrintNoteButtons();
-    
+
+    // Create Thank You card buttons for every order with loaded data
+    await createThankYouButtons();
+
     // Show a notification to the user
     if (buttonsShown > 0) {
         const message = `✅ ${buttonsShown} USPS buttons are now ready! Click any button to use the features.`;
@@ -914,6 +941,97 @@ async function createPrintNoteButtons() {
         showSimpleNotification(`✅ ${printNoteButtonsCreated} Print Note buttons are also available!`);
     } else {
         console.log(`ℹ️ No Print Note buttons created. Check if orders have customer notes.`);
+    }
+}
+
+/**
+ * Create "Thank You" card buttons for every order with loaded order data (no customer note required)
+ */
+async function createThankYouButtons() {
+    console.log('🔍 createThankYouButtons() called');
+
+    const table = document.getElementById('allocations-table');
+    if (!table) {
+        console.log('❌ No allocations table found');
+        return;
+    }
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) {
+        console.log('❌ No tbody found');
+        return;
+    }
+
+    const rows = tbody.querySelectorAll('tr');
+    const thankButtonColumn = await getThankButtonColumn();
+    let thankYouButtonsCreated = 0;
+
+    for (const row of rows) {
+        if (row.querySelectorAll('td').length < 4) {
+            continue;
+        }
+        if (row.querySelectorAll('th[role="columnheader"]').length > 0) {
+            continue;
+        }
+
+        const orderNumber = extractOrderNumberFromRow(row);
+        if (!orderNumber) {
+            continue;
+        }
+
+        const orderData = getStoredOrderData(orderNumber);
+        if (!orderData) {
+            continue;
+        }
+
+        const thankYouCell = findPrintNoteTargetCell(row, thankButtonColumn);
+        if (!thankYouCell) {
+            console.log(`⚠️ No target cell for Thank You on order ${orderNumber}`);
+            continue;
+        }
+
+        if (thankYouCell.querySelector('.thank-you-button')) {
+            continue;
+        }
+
+        const thankYouButton = document.createElement('button');
+        thankYouButton.className = 'thank-you-button';
+        thankYouButton.textContent = '💌 Thank';
+        thankYouButton.id = `thank-you-${orderNumber}`;
+        thankYouButton.title = `Print thank-you card for order: ${orderNumber}`;
+        thankYouButton.style.cssText = `
+            display: block;
+            background: #e0578c;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-top: 6px;
+            transition: background-color 0.3s ease;
+        `;
+
+        thankYouButton.addEventListener('mouseenter', function() {
+            this.style.backgroundColor = '#c8386f';
+        });
+        thankYouButton.addEventListener('mouseleave', function() {
+            this.style.backgroundColor = '#e0578c';
+        });
+        thankYouButton.addEventListener('click', function() {
+            console.log(`Thank You button clicked for order: ${orderNumber}`);
+            printThankYou(orderData);
+        });
+
+        thankYouCell.appendChild(thankYouButton);
+        thankYouButtonsCreated++;
+        console.log(`✅ Added Thank You button to column ${thankButtonColumn} for order: ${orderNumber}`);
+    }
+
+    console.log(`📊 Created ${thankYouButtonsCreated} Thank You buttons`);
+
+    if (thankYouButtonsCreated > 0) {
+        showSimpleNotification(`✅ ${thankYouButtonsCreated} Thank You buttons are also available!`);
     }
 }
 
