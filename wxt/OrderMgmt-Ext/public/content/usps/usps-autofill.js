@@ -41,10 +41,35 @@ const USPS_FORM_FIELDS = {
     getRatesButton: 'getRatesButton'
 };
 
+const USPS_PENDING_KEY = 'uspsPendingAutofill';
+const USPS_PENDING_MAX_AGE_MS = 15 * 60 * 1000;
+
+function isFormControl(element) {
+    if (!element || !element.tagName) return false;
+    const tag = element.tagName;
+    return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+}
+
 /** Resolve an input by `name` (USPS form uses the same token for name as in USPS_FORM_FIELDS). */
 function getFormInputByName(name) {
     const nodes = document.getElementsByName(name);
-    return nodes && nodes.length > 0 ? nodes[0] : null;
+    if (!nodes) return null;
+    for (const node of nodes) {
+        if (isFormControl(node)) return node;
+    }
+    return nodes.length > 0 ? nodes[0] : null;
+}
+
+/**
+ * USPS Quick Flow puts the field id on a typeahead wrapper and again on the inner input.
+ * getElementById returns the wrapper, which does not accept a value.
+ */
+function getUspsControl(id) {
+    const el = document.getElementById(id);
+    if (!el) return getFormInputByName(id);
+    if (isFormControl(el)) return el;
+    const inner = el.querySelector('input, select, textarea');
+    return inner || null;
 }
 
 function sleep(ms) {
@@ -63,10 +88,10 @@ async function waitForAddressFieldsFilled(shippingAddress, timeoutMs = 12000) {
     const deadline = Date.now() + timeoutMs;
     const expectedZip = ((shippingAddress.zip || '') + '').substring(0, 5);
 
-    const streetEl = document.getElementById(USPS_FORM_FIELDS.streetAddress1);
-    const cityEl = document.getElementById(USPS_FORM_FIELDS.city);
-    const stateEl = document.getElementById(USPS_FORM_FIELDS.state);
-    const zipEl = document.getElementById(USPS_FORM_FIELDS.zipCode);
+    const streetEl = getUspsControl(USPS_FORM_FIELDS.streetAddress1);
+    const cityEl = getUspsControl(USPS_FORM_FIELDS.city);
+    const stateEl = getUspsControl(USPS_FORM_FIELDS.state);
+    const zipEl = getUspsControl(USPS_FORM_FIELDS.zipCode);
 
     while (Date.now() < deadline) {
         const street = streetEl?.value?.trim() || '';
@@ -105,8 +130,8 @@ function autoFillUSPSForm(orderData) {
     
     try {
         // Check if form fields are actually available before attempting to fill
-        const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
-        const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+        const firstNameField = getUspsControl(USPS_FORM_FIELDS.firstName);
+        const lastNameField = getUspsControl(USPS_FORM_FIELDS.lastName);
         
         if (!firstNameField || !lastNameField) {
             console.log('Form fields not yet available, skipping auto-fill');
@@ -189,6 +214,7 @@ function autoFillUSPSForm(orderData) {
         
         // Mark auto-fill as completed to prevent future executions
         autoFillCompleted = true;
+        clearPendingUspsData(getVeeqoKeyFromLocation());
         
         // Reset the auto-fill flag
         autoFillInProgress = false;
@@ -349,7 +375,7 @@ function fillCustomerInformation(orderData) {
     const shippingAddress = orderData.shipping_addresses || {};
     
     // Fill First Name from shipping_addresses.first_name
-    const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
+    const firstNameField = getUspsControl(USPS_FORM_FIELDS.firstName);
     if (firstNameField) {
         const firstName = shippingAddress.first_name || '';
         firstNameField.value = firstName;
@@ -358,7 +384,7 @@ function fillCustomerInformation(orderData) {
     }
     
     // Fill Last Name from shipping_addresses.last_name (use "." if empty as requested)
-    const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+    const lastNameField = getUspsControl(USPS_FORM_FIELDS.lastName);
     if (lastNameField) {
         const lastName = shippingAddress.last_name || '.';
         lastNameField.value = lastName;
@@ -367,7 +393,7 @@ function fillCustomerInformation(orderData) {
     }
     
     // Fill Company from shipping_addresses.company
-    const companyField = document.getElementById(USPS_FORM_FIELDS.company);
+    const companyField = getUspsControl(USPS_FORM_FIELDS.company);
     if (companyField) {
         const company = shippingAddress.company || '';
         companyField.value = company;
@@ -387,7 +413,7 @@ function fillShippingAddress(orderData) {
     const addressComponents = formatStreetAddress(shippingAddress);
     
     // Fill Street Address 1 (main address)
-    const streetAddressField = document.getElementById(USPS_FORM_FIELDS.streetAddress1);
+    const streetAddressField = getUspsControl(USPS_FORM_FIELDS.streetAddress1);
     const suggestionsDelayMs = 3000;
     const promise = new Promise((resolve) => {
         if (streetAddressField) {
@@ -416,7 +442,7 @@ function fillShippingAddress(orderData) {
     
     // Fill Address 2 (apartment/suite/floor) if available
     if (addressComponents.aptSuite) {
-        const address2Field = document.getElementById('address2AptSuite');
+        const address2Field = getUspsControl('address2AptSuite');
         if (address2Field) {
             address2Field.value = addressComponents.aptSuite;
             triggerInputEvent(address2Field);
@@ -437,20 +463,19 @@ function fillShippingAddress(orderData) {
  */
 function handleAddressSuggestions(shippingAddress) {
     console.log('🔍 Checking for address suggestions...');
-    
-    // Look for all elements with id="streetAddress1" (there should be 2: input and dropdown)
-    const allStreetAddressElements = document.querySelectorAll('#streetAddress1');
-    console.log('🔍 Found', allStreetAddressElements.length, 'elements with id="streetAddress1"');
-    
-    // Find the dropdown menu (second element, with class "rbt-menu")
+
+    const streetHost = document.getElementById(USPS_FORM_FIELDS.streetAddress1);
     let suggestionsDiv = null;
-    allStreetAddressElements.forEach((element, index) => {
-        console.log(`🔍 Element ${index + 1}:`, element.tagName, element.className);
-        if (element.classList.contains('rbt-menu') || element.classList.contains('dropdown-menu')) {
-            suggestionsDiv = element;
-            console.log('✅ Found dropdown menu at index:', index + 1);
+    if (streetHost) {
+        if (streetHost.classList.contains('rbt-menu') || streetHost.classList.contains('dropdown-menu')) {
+            suggestionsDiv = streetHost;
+        } else if (streetHost.querySelector) {
+            suggestionsDiv = streetHost.querySelector('.rbt-menu, .dropdown-menu');
         }
-    });
+    }
+    if (!suggestionsDiv) {
+        suggestionsDiv = document.querySelector('.rbt-menu.show, .dropdown-menu.show');
+    }
     
     if (suggestionsDiv) {
         console.log('🔍 Suggestions div classes:', suggestionsDiv.className);
@@ -463,7 +488,7 @@ function handleAddressSuggestions(shippingAddress) {
         console.log('✅ Found address suggestions dropdown');
         
         // Look for dropdown items (anchor tags with class="dropdown-item")
-        const suggestionLinks = suggestionsDiv.querySelectorAll('a.dropdown-item');
+        const suggestionLinks = suggestionsDiv.querySelectorAll('a.dropdown-item, button.dropdown-item, [role="option"]');
         const targetZipCode = (shippingAddress.zip || '').substring(0, 5);
         
         console.log('🔍 Looking for suggestions with zip code:', targetZipCode);
@@ -511,7 +536,7 @@ function handleAddressSuggestions(shippingAddress) {
  */
 function fillStateAndZipManually(shippingAddress) {
     // Fill City
-    const cityField = document.getElementById(USPS_FORM_FIELDS.city);
+    const cityField = getUspsControl(USPS_FORM_FIELDS.city);
     if (cityField) {
         cityField.value = shippingAddress.city || '';
         triggerInputEvent(cityField);
@@ -519,7 +544,7 @@ function fillStateAndZipManually(shippingAddress) {
     }
     
     // Fill State (convert to 2-letter code and select from dropdown)
-    const stateField = document.getElementById(USPS_FORM_FIELDS.state);
+    const stateField = getUspsControl(USPS_FORM_FIELDS.state);
     console.log('🔍 State field found:', !!stateField);
     console.log('🔍 State field ID:', USPS_FORM_FIELDS.state);
     console.log('🔍 State field element:', stateField);
@@ -557,7 +582,7 @@ function fillStateAndZipManually(shippingAddress) {
     }
     
     // Fill Zip Code (first 5 digits)
-    const zipCodeField = document.getElementById(USPS_FORM_FIELDS.zipCode);
+    const zipCodeField = getUspsControl(USPS_FORM_FIELDS.zipCode);
     if (zipCodeField) {
         const zipCode = (shippingAddress.zip || '').substring(0, 5);
         zipCodeField.value = zipCode;
@@ -572,7 +597,7 @@ function fillStateAndZipManually(shippingAddress) {
  */
 function fillReferenceNumbers(orderData) {
     // Fill number into referenceNumber field (Reference 1)
-    const referenceNumberField = document.getElementById(USPS_FORM_FIELDS.referenceNumber);
+    const referenceNumberField = getUspsControl(USPS_FORM_FIELDS.referenceNumber);
     if (referenceNumberField) {
         referenceNumberField.value = orderData.number || '';
         triggerInputEvent(referenceNumberField);
@@ -580,7 +605,7 @@ function fillReferenceNumbers(orderData) {
     }
     
     // Fill reference_number into referenceNumber2 field (Reference 2)
-    const referenceNumber2Field = document.getElementById(USPS_FORM_FIELDS.referenceNumber2);
+    const referenceNumber2Field = getUspsControl(USPS_FORM_FIELDS.referenceNumber2);
     if (referenceNumber2Field) {
         referenceNumber2Field.value = orderData.reference_number || '';
         triggerInputEvent(referenceNumber2Field);
@@ -1122,21 +1147,76 @@ function formatStreetAddress(address) {
  * @param {HTMLElement} element - Input element
  */
 function triggerInputEvent(element) {
-    if (element) {
-        // Trigger various events that forms might listen to
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.dispatchEvent(new Event('blur', { bubbles: true }));
+    if (!element) return;
+    const control = isFormControl(element)
+        ? element
+        : (element.querySelector && element.querySelector('input, select, textarea')) || element;
+    if (!isFormControl(control)) return;
+
+    // React tracks the last value. Assigning `.value` updates that tracker, so a
+    // later input event looks like a no-op. Set through the prototype setter instead.
+    const prototype = Object.getPrototypeOf(control);
+    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    const nextValue = control.value;
+    if (control._valueTracker) {
+        control._valueTracker.setValue('');
     }
+    if (prototypeValueSetter) {
+        prototypeValueSetter.call(control, nextValue);
+    }
+
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    control.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
 /**
  * Check if we're on a USPS form page
  * @returns {boolean} True if on USPS form page
  */
+function isUspsHost() {
+    const host = window.location.hostname;
+    return host === 'cns.usps.com' || host === 'cnsb.usps.com';
+}
+
+function getRedirectPath() {
+    try {
+        return new URLSearchParams(window.location.search).get('redirectPath') || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+/**
+ * cnsb.usps.com 302s to cns.usps.com, which then rewrites the deep link to
+ * `/?redirectPath=/label-manager/new-label/quick?veeqoKey=...`.
+ */
 function isUSPSFormPage() {
-    return window.location.hostname === 'cnsb.usps.com' && 
-           window.location.pathname.includes('/new-label/');
+    if (!isUspsHost()) return false;
+    const path = window.location.pathname + window.location.search;
+    const redirectPath = getRedirectPath();
+    return path.includes('/new-label/') || redirectPath.includes('/new-label/');
+}
+
+function getVeeqoKeyFromLocation() {
+    const params = new URLSearchParams(window.location.search);
+    const direct = params.get('veeqoKey');
+    if (direct) return direct;
+
+    const redirectPath = getRedirectPath();
+    const queryIndex = redirectPath.indexOf('?');
+    if (queryIndex === -1) return null;
+    return new URLSearchParams(redirectPath.slice(queryIndex + 1)).get('veeqoKey');
+}
+
+function clearPendingUspsData(veeqoKey) {
+    const keys = [USPS_PENDING_KEY];
+    if (veeqoKey) keys.push(veeqoKey);
+    try {
+        chrome.storage.local.remove(keys);
+    } catch (error) {
+        console.log('Could not clear pending USPS data:', error);
+    }
 }
 
 /**
@@ -1165,9 +1245,9 @@ function waitAndFillForm(orderData, maxAttempts = 30, delay = 2000) {
         attempts++;
         
         // Check if form fields are available and visible
-        const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
-        const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
-        const cityField = document.getElementById(USPS_FORM_FIELDS.city);
+        const firstNameField = getUspsControl(USPS_FORM_FIELDS.firstName);
+        const lastNameField = getUspsControl(USPS_FORM_FIELDS.lastName);
+        const cityField = getUspsControl(USPS_FORM_FIELDS.city);
         
         // Also check if the form container is visible (not hidden by loading states)
         const formContainer = document.querySelector('[data-testid="recipient-form"]') || 
@@ -1209,8 +1289,8 @@ function waitAndFillForm(orderData, maxAttempts = 30, delay = 2000) {
             // Try one more time with a longer delay in case the page is still loading
             setTimeout(() => {
                 console.log('Final attempt to find form fields...');
-                const finalFirstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
-                const finalLastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+                const finalFirstNameField = getUspsControl(USPS_FORM_FIELDS.firstName);
+                const finalLastNameField = getUspsControl(USPS_FORM_FIELDS.lastName);
                 if (finalFirstNameField && finalLastNameField) {
                     console.log('Form fields found on final attempt, auto-filling...');
                     autoFillUSPSForm(orderData);
@@ -1243,49 +1323,47 @@ function initializeUSPSAutoFill() {
     }
     
     initializationInProgress = true;
-    console.log('Initializing USPS auto-fill functionality');
-    
-    // Check if we have a data key in URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const veeqoKey = urlParams.get('veeqoKey');
-    
-    if (veeqoKey) {
-        console.log('Found data key in URL parameters:', veeqoKey);
-        
-        // Clean up the URL by removing the parameter
-        const cleanUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, document.title, cleanUrl);
-        console.log('Cleaned URL:', cleanUrl);
-        
-        // Fetch order data from chrome.storage.local
-        chrome.storage.local.get([veeqoKey], (result) => {
-            if (result[veeqoKey]) {
-                console.log('Retrieved order data from chrome.storage.local:', result[veeqoKey]);
-                processOrderData(JSON.stringify(result[veeqoKey]));
-                
-                // Clean up the stored data after use
-                chrome.storage.local.remove([veeqoKey], () => {
-                    console.log('Cleaned up order data from storage');
-                });
-            } else {
-                console.log('No order data found in chrome.storage.local for key:', veeqoKey);
-            }
-        });
+    console.log('Initializing USPS auto-fill functionality', window.location.href);
+
+    // Leave redirectPath in the URL. USPS restores the label route from it.
+    const veeqoKey = getVeeqoKeyFromLocation();
+    const storageKeys = [USPS_PENDING_KEY];
+    if (veeqoKey) storageKeys.push(veeqoKey);
+
+    chrome.storage.local.get(storageKeys, (result) => {
+        if (chrome.runtime.lastError) {
+            console.log('USPS storage read failed:', chrome.runtime.lastError.message);
+            initializationInProgress = false;
+            return;
+        }
+
+        let orderData = veeqoKey ? result[veeqoKey] : null;
+        const pending = result[USPS_PENDING_KEY];
+        const pendingFresh = pending &&
+            pending.orderData &&
+            (Date.now() - (pending.createdAt || 0) < USPS_PENDING_MAX_AGE_MS);
+
+        if (!orderData && pendingFresh) {
+            console.log('Using pending USPS order data stored before the USPS redirect');
+            orderData = pending.orderData;
+        }
+
+        if (orderData) {
+            console.log('Retrieved order data for USPS auto-fill');
+            processOrderData(JSON.stringify(orderData));
+            return;
+        }
+
+        const sessionData = sessionStorage.getItem('veeqoOrderData');
+        if (sessionData) {
+            console.log('Found order data in session storage (fallback)');
+            processOrderData(sessionData);
+            return;
+        }
+
+        console.log('No order data found for USPS auto-fill. Key:', veeqoKey);
         initializationInProgress = false;
-        return;
-    }
-    
-    // Fallback: Check session storage (for backward compatibility)
-    const sessionData = sessionStorage.getItem('veeqoOrderData');
-    if (sessionData) {
-        console.log('Found order data in session storage (fallback)');
-        processOrderData(sessionData);
-        initializationInProgress = false;
-        return;
-    }
-    
-    console.log('No order data found in URL key or session storage');
-    initializationInProgress = false;
+    });
 }
 
 /**
@@ -1366,19 +1444,18 @@ function observeFormChanges(orderData) {
         subtree: true
     });
     
-    // Stop observing after 30 seconds to prevent memory leaks
+    // The Quick Flow form is lazy-loaded after the SPA restores the route.
     setTimeout(() => {
         observer.disconnect();
         console.log('DOM observer disconnected after timeout');
-    }, 30000);
+    }, 90000);
 }
 
-// Auto-initialize if we're on a USPS form page
-if (isUSPSFormPage()) {
-    console.log('USPS form page detected, initializing auto-fill...');
-    
-    // Use dynamic detection instead of fixed delays
-    waitForUSPSPageReady();
+// Auto-initialize on either USPS host. The label form is a client-side route
+// that appears after cns.usps.com reads redirectPath.
+if (isUspsHost()) {
+    console.log('USPS host detected, watching for the label form...');
+    watchForUspsLabelForm();
     
     // Also try to add the Update USPS E-price button (with retry mechanism)
     // This will keep trying until the target element is found
@@ -1397,6 +1474,31 @@ if (isUSPSFormPage()) {
             console.log('⚠️ Could not find target element for Update USPS E-price button after max retries');
         }
     }, 100); // Check every 100ms
+}
+
+/**
+ * Keep checking until the Quick Flow route is active, including after the SPA
+ * restores /label-manager/new-label/quick from redirectPath.
+ */
+function watchForUspsLabelForm() {
+    const tryStart = () => {
+        if (!isUSPSFormPage()) return;
+        if (autoFillCompleted || autoFillInProgress) return;
+        initializeUSPSAutoFill();
+    };
+
+    tryStart();
+
+    let checks = 0;
+    const timer = setInterval(() => {
+        checks++;
+        tryStart();
+        if (autoFillInProgress || autoFillCompleted || checks >= 120) {
+            clearInterval(timer);
+        }
+    }, 500);
+
+    window.addEventListener('popstate', tryStart);
 }
 
 /**
@@ -1451,7 +1553,7 @@ function isUSPSPageReady() {
     ];
     
     const foundElements = requiredElements.map(id => {
-        const element = document.getElementById(id);
+        const element = getUspsControl(id);
         return { id, found: !!element, visible: element && element.offsetParent !== null };
     });
     
@@ -1794,7 +1896,7 @@ async function fillFormWithOrderData(orderData) {
     ];
 
     fieldsToClear.forEach(fieldId => {
-        const field = document.getElementById(fieldId);
+        const field = getUspsControl(fieldId);
         if (field) {
             field.value = '';
             triggerInputEvent(field);
@@ -1888,8 +1990,8 @@ async function fillFormWithOrderData(orderData) {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     // Verify form is filled
-    const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
-    const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+    const firstNameField = getUspsControl(USPS_FORM_FIELDS.firstName);
+    const lastNameField = getUspsControl(USPS_FORM_FIELDS.lastName);
     
     if (!firstNameField || !firstNameField.value) {
         throw new Error('First name field is not filled');
@@ -1977,7 +2079,7 @@ async function fetchAllOrdersWithPagination(apiKey, baseParams = {}) {
 async function fetchOrderDataFromForm() {
     try {
         // Get order number from referenceNumber field
-        const referenceNumberField = document.getElementById(USPS_FORM_FIELDS.referenceNumber);
+        const referenceNumberField = getUspsControl(USPS_FORM_FIELDS.referenceNumber);
         if (!referenceNumberField || !referenceNumberField.value) {
             console.log('❌ Reference number field is empty');
             return null;
@@ -2053,8 +2155,8 @@ async function fetchOrderDataFromForm() {
  */
 async function ensureFormFilled(orderData) {
     // Check if form fields are already filled
-    const firstNameField = document.getElementById(USPS_FORM_FIELDS.firstName);
-    const lastNameField = document.getElementById(USPS_FORM_FIELDS.lastName);
+    const firstNameField = getUspsControl(USPS_FORM_FIELDS.firstName);
+    const lastNameField = getUspsControl(USPS_FORM_FIELDS.lastName);
     
     if (firstNameField && firstNameField.value && lastNameField && lastNameField.value) {
         console.log('✅ Form already filled');

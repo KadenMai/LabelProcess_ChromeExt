@@ -3,7 +3,7 @@ import { defineConfig } from 'wxt';
 /**
  * Content scripts under public/content/:
  * - veeqo: app.veeqo.com (error/recovery, USPS UI, api, delivery-instructions, main content) · see css/veeqo for Veeqo styles
- * - usps: cnsb.usps.com autofill
+ * - usps: cns.usps.com / cnsb.usps.com autofill
  */
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
@@ -13,7 +13,7 @@ export default defineConfig({
     description:
       'Adds USPS button to Veeqo allocations table for quick access to USPS label manager',
     permissions: ['activeTab', 'tabs', 'scripting', 'storage', 'downloads', 'downloads.open'],
-    host_permissions: ['https://api.veeqo.com/*', 'https://cnsb.usps.com/*'],
+    host_permissions: ['https://api.veeqo.com/*', 'https://cnsb.usps.com/*', 'https://cns.usps.com/*'],
     content_scripts: [
       {
         matches: ['*://app.veeqo.com/*'],
@@ -32,7 +32,7 @@ export default defineConfig({
         run_at: 'document_end',
       },
       {
-        matches: ['*://cnsb.usps.com/*'],
+        matches: ['*://cnsb.usps.com/*', '*://cns.usps.com/*'],
         js: ['content/usps/usps-autofill.js'],
         run_at: 'document_end',
       },

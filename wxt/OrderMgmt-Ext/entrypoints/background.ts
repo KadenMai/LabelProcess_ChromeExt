@@ -76,16 +76,23 @@ function handleOpenUSPSTab(
 
   if (orderData) {
     const dataKey = `veeqoOrderData_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    chrome.storage.local.set({ [dataKey]: orderData }, () => {
-      const uspsUrl = `https://cnsb.usps.com/label-manager/new-label/quick?veeqoKey=${dataKey}`;
-      chrome.tabs.create({ url: uspsUrl, active: true }, (tab) => {
-        if (chrome.runtime.lastError) {
-          sendResponse({ success: false, error: chrome.runtime.lastError.message });
-        } else {
-          sendResponse({ success: true, tabId: tab?.id });
-        }
-      });
-    });
+    chrome.storage.local.set(
+      {
+        [dataKey]: orderData,
+        // Survives the cnsb → cns redirect, which nests veeqoKey inside redirectPath.
+        uspsPendingAutofill: { key: dataKey, orderData, createdAt: Date.now() },
+      },
+      () => {
+        const uspsUrl = `https://cnsb.usps.com/label-manager/new-label/quick?veeqoKey=${dataKey}`;
+        chrome.tabs.create({ url: uspsUrl, active: true }, (tab) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ success: true, tabId: tab?.id });
+          }
+        });
+      }
+    );
   } else {
     chrome.tabs.create(
       { url: 'https://cnsb.usps.com/label-manager/new-label/quick', active: true },
