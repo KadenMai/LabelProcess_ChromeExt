@@ -596,12 +596,13 @@ function fillStateAndZipManually(shippingAddress) {
  * @param {Object} orderData - Order data
  */
 function fillReferenceNumbers(orderData) {
-    // Fill number into referenceNumber field (Reference 1)
+    // Reference 1: Veeqo order id (used later on the payment confirmation page)
     const referenceNumberField = getUspsControl(USPS_FORM_FIELDS.referenceNumber);
     if (referenceNumberField) {
-        referenceNumberField.value = orderData.number || '';
+        const veeqoId = orderData.id != null ? String(orderData.id) : '';
+        referenceNumberField.value = veeqoId;
         triggerInputEvent(referenceNumberField);
-        console.log('Filled Reference Number (Reference 1):', orderData.number || '');
+        console.log('Filled Reference Number (Reference 1 / Veeqo ID):', veeqoId);
     }
     
     // Fill reference_number into referenceNumber2 field (Reference 2)
@@ -1451,21 +1452,20 @@ function observeFormChanges(orderData) {
     }, 90000);
 }
 
-// Auto-initialize on either USPS host. The label form is a client-side route
-// that appears after cns.usps.com reads redirectPath.
-if (isUspsHost()) {
-    console.log('USPS host detected, watching for the label form...');
+// Autofill / E-price UI only belongs on the Quick Flow new-label page.
+// History and confirmation pages load this script too (same host match) but
+// must not hunt for form chrome that isn't there.
+if (isUspsHost() && isUSPSFormPage()) {
+    console.log('USPS label form page detected, watching for the form...');
     watchForUspsLabelForm();
-    
-    // Also try to add the Update USPS E-price button (with retry mechanism)
-    // This will keep trying until the target element is found
+
     let buttonRetryCount = 0;
     const maxButtonRetries = 50; // Try for 5 seconds (50 * 100ms)
-    
+
     const buttonRetryInterval = setInterval(() => {
         buttonRetryCount++;
         const targetElement = document.querySelector('.d-flex.justify-content-between.mb-5');
-        
+
         if (targetElement) {
             clearInterval(buttonRetryInterval);
             addUpdateUSPSEpriceButton();
@@ -1473,7 +1473,7 @@ if (isUspsHost()) {
             clearInterval(buttonRetryInterval);
             console.log('⚠️ Could not find target element for Update USPS E-price button after max retries');
         }
-    }, 100); // Check every 100ms
+    }, 100);
 }
 
 /**
@@ -1830,8 +1830,11 @@ async function handleUpdateUSPSEpriceClick() {
 function processOrderDataForUSPS(apiOrder) {
     // Extract allocation_package from allocations array
     let allocationPackage = null;
+    let allocationId = null;
     if (apiOrder.allocations && apiOrder.allocations.length > 0) {
-        allocationPackage = apiOrder.allocations[0].allocation_package;
+        const allocation = apiOrder.allocations[0];
+        allocationPackage = allocation.allocation_package;
+        allocationId = allocation.id ?? null;
     }
     
     // Get SKU codes for reference_number formatting
@@ -1854,6 +1857,7 @@ function processOrderDataForUSPS(apiOrder) {
         deliver_to: apiOrder.delivery_method?.name || null,
         sku_codes: skuCodes,
         allocation_package: allocationPackage,
+        allocation_id: allocationId,
         line_items: apiOrder.line_items || [],
         shipping_addresses: apiOrder.deliver_to || null, // This is the key - deliver_to becomes shipping_addresses
         customer: apiOrder.customer || null,

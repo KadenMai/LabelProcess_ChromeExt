@@ -39,6 +39,9 @@ export default defineBackground(() => {
       case 'updateVeeqoOrder_InternalNote':
         handleUpdateVeeqoOrder_InternalNote(request, sendResponse);
         return true;
+      case 'createVeeqoShipment':
+        handleCreateVeeqoShipment(request, sendResponse);
+        return true;
       case 'injectUSPSAutoFill':
         handleInjectUSPSAutoFill(request, sendResponse);
         return true;
@@ -325,6 +328,82 @@ async function handleUpdateVeeqoOrder_InternalNote(
     } else {
       const errorText = await response.text();
       sendResponse({ success: false, error: `API request failed: ${response.status} ${errorText}` });
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+/** Mark an allocation as shipped via POST /shipments (account USPS carrier_id = 29). */
+async function handleCreateVeeqoShipment(
+  request: {
+    apiKey?: string;
+    orderId?: string | number;
+    allocationId?: string | number;
+    trackingNumber?: string;
+    carrierId?: number;
+    notifyCustomer?: boolean;
+    updateRemoteOrder?: boolean;
+  },
+  sendResponse: (r: { success: boolean; data?: unknown; error?: string }) => void
+) {
+  try {
+    const {
+      apiKey,
+      orderId,
+      allocationId,
+      trackingNumber,
+      carrierId = 29,
+      notifyCustomer = false,
+      updateRemoteOrder = true,
+    } = request;
+
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'API key is required' });
+      return;
+    }
+    if (!orderId) {
+      sendResponse({ success: false, error: 'Order ID is required' });
+      return;
+    }
+    if (!allocationId) {
+      sendResponse({ success: false, error: 'Allocation ID is required' });
+      return;
+    }
+    if (!trackingNumber) {
+      sendResponse({ success: false, error: 'Tracking number is required' });
+      return;
+    }
+
+    const response = await fetch('https://api.veeqo.com/shipments', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        shipment: {
+          tracking_number_attributes: { tracking_number: trackingNumber },
+          carrier_id: carrierId,
+          notify_customer: notifyCustomer,
+          update_remote_order: updateRemoteOrder,
+        },
+        allocation_id: allocationId,
+        order_id: orderId,
+      }),
+    });
+
+    if (response.ok || response.status === 201) {
+      const data = await response.json();
+      sendResponse({ success: true, data });
+    } else {
+      const errorText = await response.text();
+      sendResponse({
+        success: false,
+        error: `Create shipment failed: ${response.status} ${errorText}`,
+      });
     }
   } catch (error: unknown) {
     const err = error as Error;

@@ -3,7 +3,7 @@ import { defineConfig } from 'wxt';
 /**
  * Content scripts under public/content/:
  * - veeqo: app.veeqo.com (error/recovery, USPS UI, api, delivery-instructions, main content) · see css/veeqo for Veeqo styles
- * - usps: cns.usps.com / cnsb.usps.com autofill
+ * - usps: cns.usps.com / cnsb.usps.com autofill + confirmation mark-shipped
  */
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
@@ -33,7 +33,7 @@ export default defineConfig({
       },
       {
         matches: ['*://cnsb.usps.com/*', '*://cns.usps.com/*'],
-        js: ['content/usps/usps-autofill.js'],
+        js: ['content/usps/usps-autofill.js', 'content/usps/usps-confirmation.js'],
         run_at: 'document_end',
       },
     ],

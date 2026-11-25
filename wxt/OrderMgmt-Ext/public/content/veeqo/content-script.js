@@ -1631,14 +1631,18 @@ function buildOrderDataFromApiOrder(apiOrder, orderNumber, htmlData = {}) {
         : quantityToShip;
 
     let allocationPackage = null;
+    let allocationId = null;
     if (apiOrder.allocations?.length > 0) {
-        allocationPackage = apiOrder.allocations[0].allocation_package;
+        const allocation = apiOrder.allocations[0];
+        allocationPackage = allocation.allocation_package;
+        allocationId = allocation.id ?? null;
     }
 
     return {
         deliver_to: apiOrder.delivery_method?.name || null,
         sku_codes: skuCodes,
         allocation_package: allocationPackage,
+        allocation_id: allocationId,
         line_items: apiOrder.line_items || [],
         shipping_addresses: apiOrder.deliver_to || null,
         customer: apiOrder.customer || null,

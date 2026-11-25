@@ -1,0 +1,140 @@
+/**
+ * 4x6 print layout for "Thank You" card (opened from Veeqo Thank button)
+ * Printed black & white — no fill colors, only text/border ink. All copy sized to stay
+ * legible on a small thermal/label printer (nothing under 14px).
+ *
+ * Visual hierarchy (top to bottom = attention to brand):
+ *   1. banner        — personalization, grabs attention
+ *   2. connection     — ties the card to what they bought
+ *   3. offer          — the focal sales message: a better price next time
+ *   4. qr-label + qr  — the ask (scan) + the mechanism, kept compact
+ *   5. footer         — brand signature, quietest element
+ */
+@page {
+    size: 4in 6in;
+    margin: 0;
+}
+
+/*
+ * Plain block layout on <body> on purpose — do NOT put display:flex (or grid) here. A flex/grid
+ * root can make Chromium's print engine size the printed page to the flex container's content
+ * instead of honoring @page, silently producing something other than 4x6. .thank-you__card below
+ * is free to use flex internally; it's just not the document root.
+ */
+body {
+    font-family: Georgia, 'Palatino Linotype', Palatino, 'Book Antiqua', serif;
+    margin: 0;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.thank-you__card {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 5.3in;
+    border: 3px dashed #000;
+    border-radius: 18px;
+    padding: 20px 18px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.thank-you__banner {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #000;
+    margin-top: 4px;
+}
+
+.thank-you__connection {
+    font-size: 17px;
+    line-height: 1.5;
+    color: #000;
+    margin: 6px 0 10px;
+}
+
+.thank-you__offer {
+    width: 100%;
+    box-sizing: border-box;
+    border: 3px solid #000;
+    border-radius: 14px;
+    padding: 14px 12px;
+    margin: 4px 0;
+}
+
+.thank-you__offer-headline {
+    font-size: 24px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 1.3;
+    color: #000;
+}
+
+.thank-you__offer-sub {
+    font-size: 16px;
+    color: #000;
+    margin-top: 6px;
+}
+
+.thank-you__qr-wrap {
+    margin: 10px 0;
+}
+
+.thank-you__qr-label {
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #000;
+    margin-bottom: 6px;
+}
+
+.thank-you__qr {
+    display: inline-block;
+    min-width: 108px;
+    min-height: 108px;
+    padding: 6px;
+    border: 2px solid #000;
+    border-radius: 10px;
+    font-size: 14px;
+    color: #000;
+}
+
+.thank-you__qr svg {
+    display: block;
+    width: 108px;
+    height: 108px;
+}
+
+.thank-you__qr-caption {
+    margin-top: 8px;
+    font-size: 14px;
+    color: #000;
+}
+
+.thank-you__footer {
+    font-family: 'Brush Script MT', 'Segoe Script', cursive;
+    font-size: 22px;
+    line-height: 1.2;
+    color: #000;
+    margin-bottom: 4px;
+}
+
+.no-print {
+    /* hidden when printing */
+}
+
+@media print {
+    body {
+        margin: 0;
+        padding: 5px;
+    }
+    .no-print {
+        display: none;
+    }
+}

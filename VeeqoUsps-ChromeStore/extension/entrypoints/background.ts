@@ -1,0 +1,569 @@
+/**
+ * Background script — Chrome Store build (Google allowlist + Veeqo OAuth Bearer)
+ */
+import { getStoredAccessToken } from '../utils/authConfig';
+import {
+  generateDailyLabelsPdf,
+  type DailyLabelsProgress,
+  type DailyLabelsResult,
+} from '../utils/dailyLabels';
+import { syncVeeqoAccessToken } from '../utils/workerAuth';
+
+async function resolveAccessToken(explicit?: string): Promise<string | null> {
+  if (explicit) return explicit;
+  const stored = await getStoredAccessToken();
+  if (stored) return stored;
+  try {
+    return await syncVeeqoAccessToken(false);
+  } catch {
+    return null;
+  }
+}
+
+export default defineBackground(() => {
+  chrome.runtime.onInstalled.addListener((details) => {
+    console.log('Veeqo USPS Extension installed/updated:', details.reason);
+    if (details.reason === 'install') {
+      console.log('First time installation - setting up extension');
+    } else if (details.reason === 'update') {
+      console.log('Extension updated to version:', chrome.runtime.getManifest().version);
+    }
+  });
+
+  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+    console.log('Background received message:', request);
+
+    switch (request.action) {
+      case 'openUSPSTab':
+        handleOpenUSPSTab(request, sendResponse);
+        return true;
+      case 'testVeeqoApi':
+        handleTestVeeqoApi(request, sendResponse);
+        return true;
+      case 'fetchVeeqoOrders':
+        handleFetchVeeqoOrders(request, sendResponse);
+        return true;
+      case 'fetchOrderById':
+        handleFetchOrderById(request, sendResponse);
+        return true;
+      case 'updateVeeqoOrder_CustomerNote':
+        handleUpdateVeeqoOrder_CustomerNote(request, sendResponse);
+        return true;
+      case 'updateVeeqoOrder_InternalNote':
+        handleUpdateVeeqoOrder_InternalNote(request, sendResponse);
+        return true;
+      case 'createVeeqoShipment':
+        handleCreateVeeqoShipment(request, sendResponse);
+        return true;
+      case 'injectUSPSAutoFill':
+        handleInjectUSPSAutoFill(request, sendResponse);
+        return true;
+      case 'getDeliveryInstructionsTemplate':
+        handleGetDeliveryInstructionsTemplate(sendResponse);
+        return true;
+      case 'getThankYouTemplate':
+        handleGetThankYouTemplate(sendResponse);
+        return true;
+      case 'generateDailyLabelsPdf':
+        handleGenerateDailyLabelsPdf(request, sendResponse);
+        return true;
+      case 'downloadDailyLabelsPdf':
+        handleDownloadDailyLabelsPdf(request, sendResponse);
+        return true;
+      case 'logMessage':
+        console.log('Content script log:', request.message);
+        break;
+      default:
+        console.log('Unknown message action:', request.action);
+    }
+  });
+
+  chrome.runtime.onStartup.addListener(() => {
+    console.log('Veeqo USPS Extension started');
+  });
+});
+
+function handleOpenUSPSTab(
+  request: { orderData?: unknown },
+  sendResponse: (r: { success: boolean; tabId?: number; error?: string }) => void
+) {
+  const { orderData } = request;
+  console.log('Background: Opening USPS tab with order data:', orderData);
+
+  if (orderData) {
+    const dataKey = `veeqoOrderData_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    chrome.storage.local.set(
+      {
+        [dataKey]: orderData,
+        // Survives the cnsb → cns redirect, which nests veeqoKey inside redirectPath.
+        uspsPendingAutofill: { key: dataKey, orderData, createdAt: Date.now() },
+      },
+      () => {
+        const uspsUrl = `https://cnsb.usps.com/label-manager/new-label/quick?veeqoKey=${dataKey}`;
+        chrome.tabs.create({ url: uspsUrl, active: true }, (tab) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ success: true, tabId: tab?.id });
+          }
+        });
+      }
+    );
+  } else {
+    chrome.tabs.create(
+      { url: 'https://cnsb.usps.com/label-manager/new-label/quick', active: true },
+      (tab) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          sendResponse({ success: true, tabId: tab?.id });
+        }
+      }
+    );
+  }
+}
+
+async function handleTestVeeqoApi(
+  request: { apiKey?: string },
+  sendResponse: (r: { success: boolean; message?: string; error?: string }) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'Veeqo not connected. Sign in and Connect Veeqo in Settings.' });
+      return;
+    }
+    const url = 'https://api.veeqo.com/orders?page_size=1';
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      mode: 'cors',
+    });
+    if (response.ok) {
+      await response.json();
+      sendResponse({ success: true, message: 'API connection successful' });
+    } else if (response.status === 401) {
+      sendResponse({ success: false, error: 'Invalid or expired Veeqo token — Connect Veeqo again' });
+    } else if (response.status === 403) {
+      sendResponse({ success: false, error: 'Veeqo token does not have required permissions' });
+    } else {
+      const errorText = await response.text();
+      sendResponse({
+        success: false,
+        error: `API request failed with status: ${response.status} - ${errorText}`,
+      });
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+      sendResponse({
+        success: false,
+        error:
+          'CORS error: Failed to fetch. Please ensure you are on a Veeqo page for the API proxy to work.',
+      });
+    } else {
+      sendResponse({ success: false, error: err.message });
+    }
+  }
+}
+
+async function handleFetchVeeqoOrders(
+  request: { apiKey?: string; params?: Record<string, string | number> },
+  sendResponse: (r: { success: boolean; data?: unknown; error?: string }) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    const { params = {} } = request;
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'Veeqo not connected' });
+      return;
+    }
+    const mergedParams: Record<string, string | number> = { page_size: 100, ...params };
+    // Default status for bulk list only — query lookups must not be status-filtered
+    if (!('status' in params) && !params.query) {
+      mergedParams.status = 'awaiting_fulfillment';
+    }
+    const queryParams = new URLSearchParams({
+      ...Object.fromEntries(
+        Object.entries(mergedParams).map(([k, v]) => [k, String(v)])
+      ),
+    });
+    const apiUrl = `https://api.veeqo.com/orders?${queryParams}`;
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        mode: 'cors',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        sendResponse({ success: true, data });
+      } else {
+        const errorText = await response.text();
+        sendResponse({
+          success: false,
+          error: `API request failed with status: ${response.status} - ${errorText}`,
+        });
+      }
+    } catch (fetchError: unknown) {
+      const fe = fetchError as Error;
+      if (fe.name === 'TypeError' && fe.message.includes('Failed to fetch')) {
+        sendResponse({
+          success: false,
+          error:
+            'CORS error: Failed to fetch. Please ensure you are on a Veeqo page for the API proxy to work.',
+        });
+      } else {
+        sendResponse({ success: false, error: `Network error: ${fe.message}` });
+      }
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleFetchOrderById(
+  request: { apiKey?: string; orderId?: string | number },
+  sendResponse: (r: { success: boolean; data?: unknown; error?: string }) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    const { orderId } = request;
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'Veeqo not connected' });
+      return;
+    }
+    if (!orderId) {
+      sendResponse({ success: false, error: 'No order ID provided' });
+      return;
+    }
+    const url = `https://api.veeqo.com/orders/${orderId}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      mode: 'cors',
+    });
+    if (response.ok) {
+      const data = await response.json();
+      sendResponse({ success: true, data });
+    } else {
+      const errorText = await response.text();
+      sendResponse({
+        success: false,
+        error: `Order fetch failed with status: ${response.status} - ${errorText}`,
+      });
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleUpdateVeeqoOrder_CustomerNote(
+  request: { apiKey?: string; orderId?: string | number; customerNote?: string },
+  sendResponse: (r: { success: boolean; data?: unknown; error?: string }) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    const { orderId, customerNote } = request;
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'Veeqo not connected' });
+      return;
+    }
+    if (!orderId) {
+      sendResponse({ success: false, error: 'Order ID is required' });
+      return;
+    }
+    if (!customerNote) {
+      sendResponse({ success: false, error: 'Customer note is required' });
+      return;
+    }
+    const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order: { customer_note_attributes: { text: customerNote } },
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      sendResponse({ success: true, data });
+    } else {
+      const errorText = await response.text();
+      sendResponse({ success: false, error: `API request failed: ${response.status} ${errorText}` });
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleUpdateVeeqoOrder_InternalNote(
+  request: { apiKey?: string; orderId?: string | number; internalNote?: string },
+  sendResponse: (r: { success: boolean; data?: unknown; error?: string }) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    const { orderId, internalNote } = request;
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'Veeqo not connected' });
+      return;
+    }
+    if (!orderId) {
+      sendResponse({ success: false, error: 'Order ID is required' });
+      return;
+    }
+    if (!internalNote) {
+      sendResponse({ success: false, error: 'Internal note is required' });
+      return;
+    }
+    const response = await fetch(`https://api.veeqo.com/orders/${orderId}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order: { employee_notes_attributes: [{ text: internalNote }] },
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      sendResponse({ success: true, data });
+    } else {
+      const errorText = await response.text();
+      sendResponse({ success: false, error: `API request failed: ${response.status} ${errorText}` });
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+/** Mark an allocation as shipped via POST /shipments (account USPS carrier_id = 29). */
+async function handleCreateVeeqoShipment(
+  request: {
+    apiKey?: string;
+    orderId?: string | number;
+    allocationId?: string | number;
+    trackingNumber?: string;
+    carrierId?: number;
+    notifyCustomer?: boolean;
+    updateRemoteOrder?: boolean;
+  },
+  sendResponse: (r: { success: boolean; data?: unknown; error?: string }) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    const {
+      orderId,
+      allocationId,
+      trackingNumber,
+      carrierId = 29,
+      notifyCustomer = false,
+      updateRemoteOrder = true,
+    } = request;
+
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'Veeqo not connected' });
+      return;
+    }
+    if (!orderId) {
+      sendResponse({ success: false, error: 'Order ID is required' });
+      return;
+    }
+    if (!allocationId) {
+      sendResponse({ success: false, error: 'Allocation ID is required' });
+      return;
+    }
+    if (!trackingNumber) {
+      sendResponse({ success: false, error: 'Tracking number is required' });
+      return;
+    }
+
+    const response = await fetch('https://api.veeqo.com/shipments', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        shipment: {
+          tracking_number_attributes: { tracking_number: trackingNumber },
+          carrier_id: carrierId,
+          notify_customer: notifyCustomer,
+          update_remote_order: updateRemoteOrder,
+        },
+        allocation_id: allocationId,
+        order_id: orderId,
+      }),
+    });
+
+    if (response.ok || response.status === 201) {
+      const data = await response.json();
+      sendResponse({ success: true, data });
+    } else {
+      const errorText = await response.text();
+      sendResponse({
+        success: false,
+        error: `Create shipment failed: ${response.status} ${errorText}`,
+      });
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+const DELIVERY_INSTRUCTIONS_TEMPLATE_PATH = 'content/veeqo/print/delivery-instructions.html';
+const DELIVERY_INSTRUCTIONS_CSS_PATH = 'css/veeqo/delivery-instructions-print.css';
+
+async function handleGetDeliveryInstructionsTemplate(
+  sendResponse: (r: { success: boolean; html?: string; css?: string; error?: string }) => void
+) {
+  const htmlUrl = chrome.runtime.getURL(DELIVERY_INSTRUCTIONS_TEMPLATE_PATH);
+  const cssUrl = chrome.runtime.getURL(DELIVERY_INSTRUCTIONS_CSS_PATH);
+  try {
+    const [htmlRes, cssRes] = await Promise.all([fetch(htmlUrl), fetch(cssUrl)]);
+    if (!htmlRes.ok) {
+      throw new Error(`Template HTTP ${htmlRes.status}`);
+    }
+    if (!cssRes.ok) {
+      throw new Error(`Print CSS HTTP ${cssRes.status}`);
+    }
+    const [html, css] = await Promise.all([htmlRes.text(), cssRes.text()]);
+    sendResponse({ success: true, html, css });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('getDeliveryInstructionsTemplate:', err);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+const THANK_YOU_TEMPLATE_PATH = 'content/veeqo/print/thank-you.html';
+const THANK_YOU_CSS_PATH = 'css/veeqo/thank-you-print.css';
+
+async function handleGetThankYouTemplate(
+  sendResponse: (r: { success: boolean; html?: string; css?: string; error?: string }) => void
+) {
+  const htmlUrl = chrome.runtime.getURL(THANK_YOU_TEMPLATE_PATH);
+  const cssUrl = chrome.runtime.getURL(THANK_YOU_CSS_PATH);
+  try {
+    const [htmlRes, cssRes] = await Promise.all([fetch(htmlUrl), fetch(cssUrl)]);
+    if (!htmlRes.ok) {
+      throw new Error(`Template HTTP ${htmlRes.status}`);
+    }
+    if (!cssRes.ok) {
+      throw new Error(`Print CSS HTTP ${cssRes.status}`);
+    }
+    const [html, css] = await Promise.all([htmlRes.text(), cssRes.text()]);
+    sendResponse({ success: true, html, css });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('getThankYouTemplate:', err);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleInjectUSPSAutoFill(
+  request: { tabId?: number; orderData?: unknown },
+  sendResponse: (r: { success: boolean; error?: string; message?: string }) => void
+) {
+  try {
+    const { tabId, orderData } = request;
+    if (!tabId) {
+      sendResponse({ success: false, error: 'No tab ID provided' });
+      return;
+    }
+    if (orderData) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: (data) => {
+          sessionStorage.setItem('veeqoOrderData', JSON.stringify(data));
+          console.log('Order data stored in USPS page session storage:', data);
+        },
+        args: [orderData],
+      });
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content/usps/usps-autofill.js'],
+    });
+    sendResponse({ success: true, message: 'USPS auto-fill script injected' });
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleGenerateDailyLabelsPdf(
+  request: { apiKey?: string; targetDate?: string | null; addTimestamp?: boolean },
+  sendResponse: (
+    r: { success: boolean; data?: DailyLabelsResult; error?: string }
+  ) => void
+) {
+  try {
+    const apiKey = await resolveAccessToken(request.apiKey);
+    if (!apiKey) {
+      sendResponse({
+        success: false,
+        error: 'Veeqo not connected. Sign in with Google and Connect Veeqo in Settings.',
+      });
+      return;
+    }
+
+    const onProgress = (p: DailyLabelsProgress) => {
+      chrome.runtime
+        .sendMessage({ action: 'dailyLabelsProgress', progress: p })
+        .catch(() => {
+          /* popup may be closed */
+        });
+    };
+
+    const data = await generateDailyLabelsPdf(apiKey, request.targetDate, onProgress, {
+      addTimestamp: request.addTimestamp !== false,
+    });
+    sendResponse({ success: true, data });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('generateDailyLabelsPdf:', err);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleDownloadDailyLabelsPdf(
+  request: { pdfBase64?: string; filename?: string },
+  sendResponse: (r: { success: boolean; downloadId?: number; error?: string }) => void
+) {
+  try {
+    const { pdfBase64, filename } = request;
+    if (!pdfBase64) {
+      sendResponse({ success: false, error: 'No PDF data provided' });
+      return;
+    }
+    const safeName = (filename || 'UPS_Labels.pdf').replace(/[\\/:*?"<>|]/g, '_');
+    const url = `data:application/pdf;base64,${pdfBase64}`;
+    const downloadId = await chrome.downloads.download({
+      url,
+      filename: safeName,
+      saveAs: true,
+    });
+    sendResponse({ success: true, downloadId });
+  } catch (error: unknown) {
+    const err = error as Error;
+    sendResponse({ success: false, error: err.message });
+  }
+}

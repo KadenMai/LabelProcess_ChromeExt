@@ -1,0 +1,11 @@
+{
+  "name": "veeqo-usps-chrome-store-monorepo",
+  "private": true,
+  "version": "2.0.0",
+  "scripts": {
+    "test": "npm test --prefix worker && npm test --prefix extension",
+    "test:worker": "npm test --prefix worker",
+    "test:extension": "npm test --prefix extension",
+    "check": "npm run check --prefix worker && npm run compile --prefix extension"
+  }
+}
